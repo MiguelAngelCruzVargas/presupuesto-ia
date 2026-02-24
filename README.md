@@ -397,3 +397,4 @@ Para preguntas o soporte, contacta al equipo de desarrollo.
 ---
 
 **Desarrollado con ❤️ usando React, Supabase y Google Gemini AI**
+# presupuesto-ia
