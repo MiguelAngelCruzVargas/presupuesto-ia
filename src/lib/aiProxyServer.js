@@ -1320,6 +1320,11 @@ Devuelve SOLO un array JSON con mínimo 3 opciones de precio para las ubicacione
 });
 
 
+// Endpoint de salud para KeepAlive
+app.get('/api/ai/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 const PORT = process.env.PORT || 4001;
 app.listen(PORT, () => {
     console.log('\n🚀 ========================================');

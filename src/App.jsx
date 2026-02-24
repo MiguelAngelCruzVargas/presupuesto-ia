@@ -29,6 +29,7 @@ import UsageNotification from './components/subscription/UsageNotification';
 import ConfirmEmail from './pages/ConfirmEmail';
 import NotFound from './pages/NotFound';
 import InactivityHandler from './components/auth/InactivityHandler';
+import KeepAlive from './components/KeepAlive';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminRoute from './components/auth/AdminRoute';
 import PriceSearchPage from './pages/PriceSearchPage';
@@ -46,6 +47,7 @@ const App = () => {
                                     <ProjectProvider>
                                         <Router>
                                             <InactivityHandler />
+                                            <KeepAlive />
                                             <Routes>
                                                 {/* Landing Page - Public */}
                                                 <Route path="/" element={<LandingPage />} />
