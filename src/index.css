@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Ocultar barras de scroll en toda la aplicación */
+/* Webkit (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+    width: 0px;
+    height: 0px;
+    background: transparent;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: transparent;
+}
+
+/* Firefox */
+* {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE and Edge */
+}
+
+/* Mantener scroll funcional pero invisible */
+html {
+    overflow: -moz-scrollbars-none; /* Firefox antiguo */
+    -ms-overflow-style: none; /* IE and Edge */
+}
+
+html::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+}
+
+body {
+    overflow: -moz-scrollbars-none; /* Firefox antiguo */
+    -ms-overflow-style: none; /* IE and Edge */
+}
+
+body::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+}
+
+/* Clase utilitaria para ocultar scrollbar manteniendo funcionalidad */
+.scrollbar-hide {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;  /* Chrome, Safari and Opera */
+}

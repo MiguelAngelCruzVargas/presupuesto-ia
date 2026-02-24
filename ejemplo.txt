@@ -1,0 +1,54 @@
+chque todas las purebas de errores que estan en el dasboard y 
+
+
+VM4147:63 [Error no enviado a Sentry]: Error: Error de prueba: JavaScript no capturado
+    at ErrorTestPanel.jsx:31:23
+ 
+{source: 'window.error', filename: 'http://localhost:3005/@fs/D:/Escritorio/presupuest…onents/testing/ErrorTestPanel.jsx?t=1764330397058', lineno: 24, colno: 15}
+ErrorTestPanel.jsx:31 Uncaught Error: Error de prueba: JavaScript no capturado
+    at ErrorTestPanel.jsx:31:23
+VM4147:63 [Error no enviado a Sentry]: Error: Promesa rechazada no manejada
+    at ErrorTestPanel.jsx:49:24
+    at new Promise (<anonymous>)
+    at ErrorTestPanel.jsx:48:13
+ 
+{source: 'unhandledrejection', promise: true}
+ErrorTestPanel.jsx:49 Uncaught (in promise) Error: Promesa rechazada no manejada
+    at ErrorTestPanel.jsx:49:24
+    at new Promise (<anonymous>)
+    at ErrorTestPanel.jsx:48:13
+VM4147:63 [ErrorTestPanel.testManualError] 
+{error: 'Error de prueba: Capturado manualmente', originalError: Error: Error de prueba: Capturado manualmente
+    at testManualError (http://localhost:3005/@fs/D:/…, metadata: {…}, timestamp: '2025-11-28T12:04:52.127Z'}
+VM4147:63 [Error no enviado a Sentry]: Error: Error de prueba: Capturado manualmente
+    at testManualError (ErrorTestPanel.jsx:58:27)
+ 
+{context: 'ErrorTestPanel.testManualError', test: true, usuario: 'Testing', userFriendlyMessage: 'Error de prueba: Capturado manualmente'}
+VM4147:63 [ErrorTestPanel.testValidationError] 
+{error: 'Error de validación: El campo nombre es requerido', originalError: Error: Error de validación: El campo nombre es requerido
+    at testValidationError (http://localho…, metadata: {…}, timestamp: '2025-11-28T12:04:53.555Z'}
+VM4147:63 [Error no enviado a Sentry]: Error: Error de validación: El campo nombre es requerido
+    at testValidationError (ErrorTestPanel.jsx:72:23)
+ 
+ 
+{context: 'ErrorTestPanel.testValidationError', field: 'nombre', validation: true, userFriendlyMessage: 'Error de validación: El campo nombre es requerido'}
+VM4147:63 [ErrorTestPanel.testNullError] 
+{error: "Cannot read properties of null (reading 'propiedad')", originalError: TypeError: Cannot read properties of null (reading 'propiedad')
+    at testNullError (http://localh…, metadata: {…}, timestamp: '2025-11-28T12:04:54.879Z'}
+VM4147:63 [Error no enviado a Sentry]: TypeError: Cannot read properties of null (reading 'propiedad')
+    at testNullError (ErrorTestPanel.jsx:100:32)
+ 
+{context: 'ErrorTestPanel.testNullError', userFriendlyMessage: "Cannot read properties of null (reading 'propiedad')"}
+VM4147:63 [ErrorTestPanel.testNetworkError] 
+{error: 'Error de conexión. Verifica tu internet e intenta de nuevo.', originalError: Error: Failed to fetch: NetworkError when attempting to fetch resource
+    at testNetworkError (htt…, metadata: {…}, timestamp: '2025-11-28T12:04:56.065Z'}
+VM4147:63 [Error no enviado a Sentry]: Error: Failed to fetch: NetworkError when attempting to fetch resource
+    at testNetworkError (ErrorTestPanel.jsx:83:23)
+ 
+{context: 'ErrorTestPanel.testNetworkError', userFriendlyMessage: 'Error de conexión. Verifica tu internet e intenta de nuevo.'}
+VM4147:63 [Error no enviado a Sentry]: Error: Error de prueba: Esto crasheará el componente React
+    at testReactError (ErrorTestPanel.jsx:92:15)
+ 
+{source: 'window.error', filename: 'http://localhost:3005/@fs/D:/Escritorio/presupuest…onents/testing/ErrorTestPanel.jsx?t=1764330397058', lineno: 69, colno: 11}
+ErrorTestPanel.jsx:92 Uncaught Error: Error de prueba: Esto crasheará el componente React
+    at testReactError (ErrorTestPanel.jsx:92:15)

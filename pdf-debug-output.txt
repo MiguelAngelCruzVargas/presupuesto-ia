@@ -1,0 +1,9 @@
+Required 'pdf-parse' successfully.
+Instantiating new pdfPkg.PDFParse(buffer)...
+Instance created. Keys: options, doc, progress
+Prototype keys: constructor, destroy, getInfo, getPageLinks, getText, load, shouldParse, getPageText, getHyperlinks, getImage, convertToRGBA, resolveEmbeddedImage, getScreenshot, getTable, getPathGeometry, getPageTables, fillPageTables
+Calling method getText()...
+Method getText failed: Please provide binary data as `Uint8Array`, rather than `Buffer`.
+
+Required 'pdf-parse/node' successfully.
+Keys: getHeader
