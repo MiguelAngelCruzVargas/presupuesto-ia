@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calendar, CheckCircle, Clock, Camera, Plus, FileText, Download, Image as ImageIcon, Edit, Trash2, Eye, X } from 'lucide-react';
+import { ArrowLeft, Calendar, CheckCircle, Clock, Camera, Plus, FileText, Download, Image as ImageIcon, Edit, Trash2, Eye, X, ExternalLink } from 'lucide-react';
 import BitacoraService from '../services/BitacoraService';
 import ProjectPersistenceService from '../services/ProjectPersistenceService';
 import LogEntryModal from '../components/bitacora/LogEntryModal';
@@ -51,18 +51,23 @@ const BitacoraPage = () => {
             setLogs(logsData);
             setProjectFullData(projectData);
 
+            // Si no hay cronograma, por defecto ir a la pestaña de bitácora
+            if (!scheduleData || (!scheduleData.tasks && !scheduleData.phases)) {
+                setActiveTab('bitacora');
+            }
+
         } catch (error) {
             console.error('Error loading bitacora:', error);
             // Verificar si el error es por permisos o proyecto no encontrado
             const errorMessage = error.message?.includes('permisos') || error.message?.includes('permission') || error.message?.includes('No tienes permisos')
                 ? 'No tienes permisos para acceder a este proyecto'
                 : error.message?.includes('no encontrado') || error.message?.includes('not found')
-                ? 'Proyecto no encontrado'
-                : 'Error al cargar el proyecto. Puede que no exista o no tengas permisos.';
-            
+                    ? 'Proyecto no encontrado'
+                    : 'Error al cargar el proyecto. Puede que no exista o no tengas permisos.';
+
             // Mostrar mensaje de error de forma más elegante
             console.error(errorMessage);
-            
+
             // Redirigir al dashboard después de un breve delay
             setTimeout(() => {
                 navigate('/dashboard');
@@ -73,45 +78,27 @@ const BitacoraPage = () => {
     };
 
     // Filtrar logs con fotos (reportes fotográficos)
-    const logsWithPhotos = logs.filter(log => 
-        log.photos && 
-        Array.isArray(log.photos) && 
+    const logsWithPhotos = logs.filter(log =>
+        log.photos &&
+        Array.isArray(log.photos) &&
         log.photos.length > 0 &&
         !log.isDiaryEntry &&
         log.task_id !== 'diary'
     );
-    
+
     // Filtrar entradas de diario (sin fotos, tipo libro)
     const diaryEntries = logs.filter(log => log.isDiaryEntry === true || (log.task_id === 'diary' && (!log.photos || log.photos.length === 0)));
-    
+
     // Filtrar notas de bitácora normales (excluir diario y reportes fotográficos)
     const bitacoraNotes = logs.filter(log => {
         const isDiary = log.isDiaryEntry || log.task_id === 'diary';
         const isPhotographicReport = log.subject?.includes('Reporte Fotográfico:');
-        
+
         // Incluir si NO es diario y NO es reporte fotográfico
         const shouldInclude = !isDiary && !isPhotographicReport;
-        
-        if (!shouldInclude) {
-            console.log('Nota excluida:', {
-                id: log.id,
-                note_number: log.note_number,
-                subject: log.subject,
-                isDiaryEntry: log.isDiaryEntry,
-                task_id: log.task_id,
-                isPhotographicReport
-            });
-        }
-        
+
         return shouldInclude;
     });
-    
-    console.log('Notas de bitácora filtradas:', bitacoraNotes.length, 'de', logs.length);
-    console.log('Notas incluidas:', bitacoraNotes.map(n => ({
-        note_number: n.note_number,
-        subject: n.subject,
-        hasContent: !!n.content
-    })));
 
     // Función para generar preview del PDF
     const handlePreviewPDF = async (type = 'photographic') => {
@@ -155,7 +142,11 @@ const BitacoraPage = () => {
                 const options = {
                     contractor: projectInfo.contractor || projectInfo.client || '',
                     contractNumber: projectInfo.contractNumber || 'S/N',
-                    concepts: PDFReportService.extractConceptsFromLogs(dateLogs),
+                    // Para CONCEPTOS en el PDF, priorizar lo que el usuario escribió en el encabezado del Reporte Fotográfico.
+                    // Si está vacío, usar conceptos derivados de los logs.
+                    concepts: projectInfo.concepts && projectInfo.concepts.trim().length > 0
+                        ? projectInfo.concepts
+                        : PDFReportService.extractConceptsFromLogs(dateLogs),
                     obra: projectInfo.project || projectInfo.name || '',
                     supervisorName: projectInfo.supervisorName || '',
                     supervisorRole: projectInfo.supervisorRole || '',
@@ -273,7 +264,9 @@ const BitacoraPage = () => {
                             try {
                                 for (const date of dates) {
                                     const dateLogs = logsByDate[date];
-                                    const concepts = PDFReportService.extractConceptsFromLogs(dateLogs);
+                                    const concepts = projectInfo.concepts && projectInfo.concepts.trim().length > 0
+                                        ? projectInfo.concepts
+                                        : PDFReportService.extractConceptsFromLogs(dateLogs);
 
                                     const options = {
                                         contractor: projectInfo.contractor || projectInfo.client || 'Contratista',
@@ -317,7 +310,9 @@ const BitacoraPage = () => {
                             try {
                                 const latestDate = dates[dates.length - 1];
                                 const dateLogs = logsByDate[latestDate];
-                                const concepts = PDFReportService.extractConceptsFromLogs(dateLogs);
+                                const concepts = projectInfo.concepts && projectInfo.concepts.trim().length > 0
+                                    ? projectInfo.concepts
+                                    : PDFReportService.extractConceptsFromLogs(dateLogs);
 
                                 const options = {
                                     contractor: projectInfo.contractor || projectInfo.client || 'Contratista',
@@ -347,7 +342,9 @@ const BitacoraPage = () => {
                     // Solo una fecha, exportar directamente
                     const date = dates[0];
                     const dateLogs = logsByDate[date];
-                    const concepts = PDFReportService.extractConceptsFromLogs(dateLogs);
+                    const concepts = projectInfo.concepts && projectInfo.concepts.trim().length > 0
+                        ? projectInfo.concepts
+                        : PDFReportService.extractConceptsFromLogs(dateLogs);
 
                     const options = {
                         contractor: projectInfo.contractor || projectInfo.client || 'Contratista',
@@ -528,11 +525,20 @@ const BitacoraPage = () => {
                 <div className="bg-white p-12 rounded-2xl shadow-sm text-center">
                     <Calendar size={48} className="mx-auto text-slate-300 mb-4" />
                     <h3 className="text-lg font-bold text-slate-700">No hay cronograma activo</h3>
-                    <p className="text-slate-500 mb-6">Primero debes generar y guardar un cronograma desde el Editor.</p>
-                    <button onClick={() => navigate(`/editor/${id}`)} className="text-indigo-600 font-bold hover:underline">
-                        Ir al Editor
-                    </button>
+                    <p className="text-slate-500 mb-6">Este proyecto no tiene un cronograma de obra generado.</p>
+                    <div className="flex justify-center gap-4">
+                        <button
+                            onClick={() => setActiveTab('bitacora')}
+                            className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition"
+                        >
+                            Ir a Notas de Bitácora
+                        </button>
+                        <button onClick={() => navigate(`/editor/${id}`)} className="text-indigo-600 font-bold hover:underline px-6 py-2">
+                            Generar Cronograma en Editor
+                        </button>
+                    </div>
                 </div>
+
             );
         }
 
@@ -752,15 +758,16 @@ const BitacoraPage = () => {
 
         return (
             <div className="space-y-4">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="font-bold text-slate-700 flex items-center gap-2">
-                        <FileText className="mr-2" size={20} /> Notas de Bitácora
-                        <span className="text-xs font-normal text-slate-400 bg-white px-2 py-1 rounded border border-slate-200">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                    <h2 className="font-bold text-slate-700 flex items-center gap-2 flex-wrap">
+                        <FileText className="shrink-0" size={20} /> Notas de Bitácora
+                        <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
                             {bitacoraNotes.length} {bitacoraNotes.length === 1 ? 'nota' : 'notas'}
                         </span>
                     </h2>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <button
+                            type="button"
                             onClick={() => {
                                 setSelectedTask({
                                     id: 'general',
@@ -770,33 +777,35 @@ const BitacoraPage = () => {
                                 setEditingLog(null);
                                 setShowModal(true);
                             }}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-sm"
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-2 shadow-sm min-h-[44px] touch-manipulation"
                             title="Crear nueva nota"
                         >
-                            <Plus size={16} />
+                            <Plus size={18} />
                             Nueva Nota
                         </button>
                         <button
+                            type="button"
                             onClick={() => handlePreviewPDF('bitacora')}
                             disabled={bitacoraNotes.length === 0 || generatingPreview}
-                            className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg font-bold transition flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] touch-manipulation"
                             title="Vista previa del PDF"
                         >
                             {generatingPreview ? (
                                 <>
-                                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                                    Generando...
+                                    <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    <span>Generando...</span>
                                 </>
                             ) : (
                                 <>
                                     <Eye size={16} />
-                                    Vista Previa PDF
+                                    <span className="hidden xs:inline">Vista Previa</span> PDF
                                 </>
                             )}
                         </button>
                         <button
+                            type="button"
                             onClick={() => handleExportPDF('bitacora')}
-                            className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg font-bold hover:bg-slate-50 transition flex items-center gap-2 shadow-sm"
+                            className="bg-white text-slate-700 border-2 border-slate-200 px-4 py-2.5 rounded-xl font-bold hover:bg-slate-50 transition flex items-center gap-2 shadow-sm min-h-[44px] touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
                             disabled={bitacoraNotes.length === 0}
                         >
                             <Download size={16} />
@@ -805,33 +814,33 @@ const BitacoraPage = () => {
                     </div>
                 </div>
 
-                {/* Diseño tipo libro - Dos páginas */}
                 <div className="space-y-6">
                     {sortedNotes.map((log) => {
-                        // Extraer metadata del contenido si existe
                         const metadata = BitacoraService.extractBitacoraMetadata(log.content) || {};
                         return (
-                            <div key={log.id} className="bg-gradient-to-br from-amber-50 via-white to-amber-50 rounded-lg shadow-lg border-2 border-amber-200 p-6 group">
-                                {/* Simulación de libro abierto - Dos páginas */}
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div key={log.id} className="bg-gradient-to-br from-amber-50/80 via-white to-amber-50/80 rounded-xl shadow-md border-2 border-amber-200/80 p-4 sm:p-6 group">
+                                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 xl:gap-6">
+
                                     {/* Página Izquierda */}
-                                    <div className="bg-white rounded shadow-inner border-r-2 border-amber-100 p-6 min-h-[600px] relative flex flex-col" style={{ 
+                                    <div className="bg-white rounded shadow-inner border-r-2 border-amber-100 p-6 min-h-[400px] md:min-h-[600px] relative flex flex-col" style={{
                                         backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 31px, #e5e7eb 31px, #e5e7eb 32px)',
                                         backgroundSize: '100% 32px'
                                     }}>
+
                                         {/* Número de folio en esquina */}
                                         <div className="absolute top-2 right-2 text-xs font-bold text-amber-600">
                                             Folio #{log.note_number || 'S/N'}
                                         </div>
-                                        
+
                                         {/* Header de la página */}
                                         <div className="mb-4 pb-3 border-b-2 border-amber-200">
                                             <div className="flex items-center justify-between mb-2">
                                                 <h3 className="text-lg font-bold text-slate-800" style={{ fontFamily: 'serif' }}>
                                                     {log.subject || 'Sin Asunto'}
                                                 </h3>
-                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <div className="flex gap-1 transition-opacity">
                                                     <button
+
                                                         onClick={() => handleEditLog(log)}
                                                         className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition"
                                                         title="Editar nota"
@@ -850,11 +859,11 @@ const BitacoraPage = () => {
                                             <div className="flex items-center gap-3 text-xs text-slate-600">
                                                 <span className="font-semibold">{log.classification || 'Informe'}</span>
                                                 <span>•</span>
-                                                <span>{new Date(log.log_date || log.created_at).toLocaleDateString('es-MX', { 
-                                                    weekday: 'long', 
-                                                    year: 'numeric', 
-                                                    month: 'long', 
-                                                    day: 'numeric' 
+                                                <span>{new Date(log.log_date || log.created_at).toLocaleDateString('es-MX', {
+                                                    weekday: 'long',
+                                                    year: 'numeric',
+                                                    month: 'long',
+                                                    day: 'numeric'
                                                 })}</span>
                                                 <span className={`ml-auto px-2 py-0.5 rounded text-[10px] font-bold ${log.status === 'Cerrada' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                                                     {log.status || 'Abierta'}
@@ -915,7 +924,7 @@ const BitacoraPage = () => {
                                     </div>
 
                                     {/* Página Derecha */}
-                                    <div className="bg-white rounded shadow-inner border-l-2 border-amber-100 p-6 min-h-[600px] relative flex flex-col" style={{ 
+                                    <div className="bg-white rounded shadow-inner border-l-2 border-amber-100 p-6 min-h-[400px] md:min-h-[600px] relative flex flex-col" style={{
                                         backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 31px, #e5e7eb 31px, #e5e7eb 32px)',
                                         backgroundSize: '100% 32px'
                                     }}>
@@ -938,7 +947,7 @@ const BitacoraPage = () => {
                                                 <span className="text-sm font-bold text-indigo-600">{log.progress_percentage || 0}%</span>
                                             </div>
                                             <div className="w-full bg-slate-200 rounded-full h-2">
-                                                <div 
+                                                <div
                                                     className="bg-indigo-600 h-2 rounded-full transition-all"
                                                     style={{ width: `${log.progress_percentage || 0}%` }}
                                                 ></div>
@@ -1005,42 +1014,45 @@ const BitacoraPage = () => {
     const renderFotografico = () => {
         return (
             <div className="space-y-4">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="font-bold text-slate-700 flex items-center gap-2">
-                        <ImageIcon className="mr-2" size={20} /> Reporte Fotográfico
-                        <span className="text-xs font-normal text-slate-400 bg-white px-2 py-1 rounded border border-slate-200">
-                            {logsWithPhotos.length} reportes con fotos
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                    <h2 className="font-bold text-slate-700 flex items-center gap-2 flex-wrap">
+                        <ImageIcon className="shrink-0" size={20} /> Reporte Fotográfico
+                        <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                            {logsWithPhotos.length} {logsWithPhotos.length === 1 ? 'reporte' : 'reportes'}
                         </span>
                     </h2>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <button
+                            type="button"
                             onClick={() => navigate(`/project/${id}/report/new`)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-sm"
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition flex items-center gap-2 shadow-sm min-h-[44px] touch-manipulation"
                         >
-                            <Plus size={16} />
+                            <Plus size={18} />
                             Nuevo Reporte
                         </button>
                         <button
+                            type="button"
                             onClick={() => handlePreviewPDF('photographic')}
                             disabled={logsWithPhotos.length === 0 || generatingPreview}
-                            className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg font-bold transition flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] touch-manipulation"
                             title="Vista previa del PDF"
                         >
                             {generatingPreview ? (
                                 <>
-                                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                                    Generando...
+                                    <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    <span>Generando...</span>
                                 </>
                             ) : (
                                 <>
                                     <Eye size={16} />
-                                    Vista Previa PDF
+                                    <span className="hidden xs:inline">Vista Previa</span> PDF
                                 </>
                             )}
                         </button>
                         <button
+                            type="button"
                             onClick={() => handleExportPDF('photographic')}
-                            className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-lg font-bold hover:bg-slate-50 transition flex items-center gap-2 shadow-sm"
+                            className="bg-white text-slate-700 border-2 border-slate-200 px-4 py-2.5 rounded-xl font-bold hover:bg-slate-50 transition flex items-center gap-2 shadow-sm min-h-[44px] touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed"
                             disabled={logsWithPhotos.length === 0}
                         >
                             <Download size={16} />
@@ -1049,70 +1061,91 @@ const BitacoraPage = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {logsWithPhotos.map((log) => (
-                        <div key={log.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition group">
-                            {/* Header */}
-                            <div className="p-3 bg-slate-50 border-b border-slate-200">
-                                <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xs font-bold text-slate-500">Nota #{log.note_number || 'N/A'}</span>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-slate-400">{new Date(log.log_date).toLocaleDateString()}</span>
-                                        {/* Botones de acción */}
-                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button
-                                                onClick={() => handleEditReport(log)}
-                                                className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition"
-                                                title="Editar reporte"
-                                            >
-                                                <Edit size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteReport(log.id)}
-                                                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition"
-                                                title="Eliminar reporte"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
+                        <div key={log.id} className="bg-white rounded-xl shadow-sm border-2 border-slate-200 overflow-hidden hover:shadow-md hover:border-slate-300 transition group">
+                            <div className="p-3 sm:p-4 bg-slate-50/80 border-b border-slate-200">
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                    <span className="text-xs font-bold text-slate-500 shrink-0">Nota #{log.note_number || 'N/A'}</span>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <span className="text-[10px] text-slate-400 hidden sm:inline">{new Date(log.log_date).toLocaleDateString('es-MX')}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleEditReport(log)}
+                                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition touch-manipulation"
+                                            title="Editar reporte"
+                                            aria-label="Editar reporte"
+                                        >
+                                            <Edit size={16} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteReport(log.id)}
+                                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition touch-manipulation"
+                                            title="Eliminar reporte"
+                                            aria-label="Eliminar reporte"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
                                     </div>
                                 </div>
-                                <h3 className="font-bold text-slate-800 text-sm line-clamp-2">{log.subject || 'Sin asunto'}</h3>
+                                <h3 className="font-bold text-slate-800 text-sm line-clamp-2 leading-snug">{log.subject || 'Sin asunto'}</h3>
+                                <p className="text-[10px] text-slate-400 sm:hidden mt-1">{new Date(log.log_date).toLocaleDateString('es-MX')}</p>
                             </div>
 
-                            {/* Photos Grid */}
-                            <div className="p-3">
-                                <div className="grid grid-cols-2 gap-2 mb-3">
+                            <div className="p-3 sm:p-4">
+                                <div className="grid grid-cols-2 gap-2">
                                     {log.photos.slice(0, 4).map((photo, idx) => (
-                                        <img key={idx} src={photo} className="w-full h-24 object-cover rounded-lg border border-slate-200" alt={`photo ${idx + 1}`} />
+                                        <div key={idx} className="aspect-square rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
+                                            <img src={photo} className="w-full h-full object-cover" alt={`Evidencia ${idx + 1}`} loading="lazy" />
+                                        </div>
                                     ))}
                                 </div>
                                 {log.photos.length > 4 && (
-                                    <p className="text-xs text-slate-500 text-center">+{log.photos.length - 4} fotos más</p>
+                                    <p className="text-xs text-slate-500 text-center mt-2">+{log.photos.length - 4} fotos más</p>
                                 )}
                             </div>
 
-                            {/* Footer */}
-                            <div className="p-3 bg-slate-50 border-t border-slate-200">
-                                <p className="text-xs text-slate-600 line-clamp-2 mb-2">{log.content || 'Sin descripción'}</p>
-                                <div className="flex items-center justify-between">
+                            <div className="p-3 sm:p-4 bg-slate-50/50 border-t border-slate-100">
+                                {(() => {
+                                    // Para reportes fotográficos, limpiar metadata de captions y ocultar ids internos tipo "block-..."
+                                    if (log.subject?.startsWith('Reporte Fotográfico')) {
+                                        const { cleanContent } = PDFReportService.parsePhotoReportContent(log.content || '');
+                                        const safeContent = (cleanContent || 'Sin descripción')
+                                            .replace(/Reporte fotográfico:\s*block-[\w-]+/i, 'Reporte fotográfico');
+                                        return (
+                                            <p className="text-xs text-slate-600 line-clamp-2 mb-2 leading-relaxed">
+                                                {safeContent}
+                                            </p>
+                                        );
+                                    }
+                                    return (
+                                        <p className="text-xs text-slate-600 line-clamp-2 mb-2 leading-relaxed">
+                                            {log.content || 'Sin descripción'}
+                                        </p>
+                                    );
+                                })()}
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
                                     <span className="text-[10px] text-slate-400">{log.classification || 'Informe'}</span>
-                                    <span className="text-[10px] font-bold text-indigo-600">Avance: {log.progress_percentage}%</span>
+                                    <span className="text-xs font-bold text-indigo-600">Avance: {log.progress_percentage}%</span>
                                 </div>
                             </div>
                         </div>
                     ))}
                     {logsWithPhotos.length === 0 && (
-                        <div className="col-span-full text-center py-12 bg-white rounded-xl border border-dashed border-slate-300">
-                            <ImageIcon size={48} className="mx-auto text-slate-300 mb-4" />
-                            <p className="text-slate-500 font-medium mb-2">No hay reportes fotográficos</p>
-                            <p className="text-xs text-slate-400 mb-4">Crea un nuevo reporte fotográfico con múltiples conceptos y fotos.</p>
+                        <div className="col-span-full text-center py-12 sm:py-16 bg-white rounded-xl border-2 border-dashed border-slate-200">
+                            <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+                                <ImageIcon size={32} className="text-slate-400" />
+                            </div>
+                            <p className="text-slate-600 font-semibold mb-1">No hay reportes fotográficos</p>
+                            <p className="text-sm text-slate-500 mb-6">Crea un reporte con conceptos y fotos para exportar a PDF.</p>
                             <button
+                                type="button"
                                 onClick={() => navigate(`/project/${id}/report/new`)}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-lg transition flex items-center gap-2 mx-auto shadow-sm"
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-5 py-3 rounded-xl transition flex items-center gap-2 mx-auto shadow-sm min-h-[44px] touch-manipulation"
                             >
-                                <Plus size={16} />
-                                Crear Primer Reporte
+                                <Plus size={18} />
+                                Crear primer reporte
                             </button>
                         </div>
                     )}
@@ -1123,70 +1156,86 @@ const BitacoraPage = () => {
 
 
     return (
-        <div className="min-h-screen bg-slate-50 p-6">
-            <div className="max-w-7xl mx-auto space-y-6">
+        <div className="min-h-screen bg-slate-50 p-3 sm:p-4 md:p-6">
+            <div className="w-full max-w-[1600px] mx-auto space-y-4 sm:space-y-6">
+
                 {/* Header */}
-                <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-4">
-                        <button onClick={() => navigate(`/editor/${id}`)} className="p-2 hover:bg-white rounded-full transition" title="Volver al Editor">
-                            <ArrowLeft size={24} className="text-slate-600" />
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
+                    <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+                        <button
+                            type="button"
+                            onClick={() => navigate('/reports')}
+                            className="shrink-0 p-2.5 -ml-2 hover:bg-white rounded-xl transition touch-manipulation"
+                            title="Volver a Proyectos"
+                            aria-label="Volver"
+                        >
+                            <ArrowLeft size={22} className="text-slate-600" />
                         </button>
-                        <div>
-                            <h1 className="text-2xl font-bold text-slate-900">Bitácora de Obra</h1>
-                            <p className="text-slate-500">Seguimiento y evidencias del proyecto</p>
+                        <div className="min-w-0">
+                            <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-900 truncate">Gestión de Obra</h1>
+                            <p className="text-sm text-slate-500 truncate">{projectFullData?.projectInfo?.project || 'Cargando...'}</p>
                         </div>
                     </div>
-                    <button
-                        onClick={() => navigate(`/editor/${id}`)}
-                        className="bg-white text-indigo-600 border border-indigo-200 px-4 py-2 rounded-lg font-bold hover:bg-indigo-50 transition flex items-center shadow-sm"
-                    >
-                        <Calendar size={18} className="mr-2" /> Editar Cronograma
-                    </button>
+                    <div className="flex w-full sm:w-auto">
+                        <button
+                            type="button"
+                            onClick={() => navigate(`/editor/${id}`)}
+                            className="flex-1 sm:flex-none bg-white text-indigo-600 border-2 border-indigo-200 px-4 py-2.5 rounded-xl font-bold hover:bg-indigo-50 transition flex items-center justify-center gap-2 shadow-sm text-sm min-h-[44px] touch-manipulation"
+                        >
+                            <Calendar size={18} className="shrink-0" /> <span>Cronograma</span>
+                        </button>
+                    </div>
                 </div>
 
                 {/* Tabs */}
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="flex border-b border-slate-200">
+                <div className="bg-white rounded-xl shadow-sm border-2 border-slate-200 overflow-hidden">
+                    <div className="flex overflow-x-auto scrollbar-hide border-b border-slate-200">
+
                         <button
+                            type="button"
                             onClick={() => setActiveTab('cronograma')}
-                            className={`flex-1 px-6 py-4 font-bold text-sm transition flex items-center justify-center gap-2 ${activeTab === 'cronograma'
-                                    ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600'
-                                    : 'text-slate-600 hover:bg-slate-50'
+                            className={`min-w-[100px] sm:min-w-[120px] flex-1 px-3 sm:px-4 md:px-6 py-3 sm:py-4 font-bold text-xs md:text-sm transition flex items-center justify-center gap-2 touch-manipulation ${activeTab === 'cronograma'
+                                ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600'
+                                : 'text-slate-600 hover:bg-slate-50'
                                 }`}
                         >
-                            <Clock size={18} />
-                            Cronograma
+                            <Clock size={18} className="shrink-0" />
+                            <span className="truncate">Cronograma</span>
                         </button>
+
                         <button
+                            type="button"
                             onClick={() => setActiveTab('bitacora')}
-                            className={`flex-1 px-6 py-4 font-bold text-sm transition flex items-center justify-center gap-2 ${activeTab === 'bitacora'
-                                    ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600'
-                                    : 'text-slate-600 hover:bg-slate-50'
+                            className={`min-w-[100px] sm:min-w-[120px] flex-1 px-3 sm:px-4 md:px-6 py-3 sm:py-4 font-bold text-xs md:text-sm transition flex items-center justify-center gap-2 touch-manipulation ${activeTab === 'bitacora'
+                                ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600'
+                                : 'text-slate-600 hover:bg-slate-50'
                                 }`}
                         >
-                            <FileText size={18} />
-                            Bitácora
+                            <FileText size={18} className="shrink-0" />
+                            <span className="truncate">Bitácora</span>
                             {logs.length > 0 && (
-                                <span className="bg-indigo-600 text-white text-xs px-2 py-0.5 rounded-full">{logs.length}</span>
+                                <span className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full shrink-0">{logs.length}</span>
                             )}
                         </button>
+
                         <button
+                            type="button"
                             onClick={() => setActiveTab('fotografico')}
-                            className={`flex-1 px-6 py-4 font-bold text-sm transition flex items-center justify-center gap-2 ${activeTab === 'fotografico'
-                                    ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600'
-                                    : 'text-slate-600 hover:bg-slate-50'
+                            className={`min-w-[100px] sm:min-w-[120px] flex-1 px-3 sm:px-4 md:px-6 py-3 sm:py-4 font-bold text-xs md:text-sm transition flex items-center justify-center gap-2 touch-manipulation ${activeTab === 'fotografico'
+                                ? 'bg-indigo-600 text-white border-b-2 border-indigo-800 shadow-inner'
+                                : 'text-slate-600 hover:bg-slate-50'
                                 }`}
                         >
-                            <ImageIcon size={18} />
-                            Reporte Fotográfico
+                            <Camera size={18} className="shrink-0" />
+                            <span className="truncate">Fotos</span>
                             {logsWithPhotos.length > 0 && (
-                                <span className="bg-indigo-600 text-white text-xs px-2 py-0.5 rounded-full">{logsWithPhotos.length}</span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full shrink-0 ${activeTab === 'fotografico' ? 'bg-white/20 text-white' : 'bg-indigo-600 text-white'}`}>{logsWithPhotos.length}</span>
                             )}
                         </button>
                     </div>
 
                     {/* Tab Content */}
-                    <div className="p-6">
+                    <div className="p-4 sm:p-6">
                         {activeTab === 'cronograma' && renderCronograma()}
                         {activeTab === 'bitacora' && renderBitacora()}
                         {activeTab === 'fotografico' && renderFotografico()}
@@ -1233,35 +1282,45 @@ const BitacoraPage = () => {
 
             {/* Modal de Preview PDF */}
             {showPdfPreview && pdfPreviewUrl && (
-                <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-lg shadow-2xl w-full h-full max-w-7xl max-h-[90vh] flex flex-col">
-                        {/* Header del Modal */}
-                        <div className="flex items-center justify-between p-4 border-b border-slate-200">
-                            <div className="flex items-center gap-3">
-                                <FileText size={24} className="text-indigo-600" />
-                                <h3 className="text-xl font-bold text-slate-900">Vista Previa del PDF</h3>
+                <div className="fixed inset-0 bg-slate-900/95 z-50 flex flex-col">
+                    <div className="bg-white w-full h-full flex flex-col rounded-none sm:rounded-t-xl overflow-hidden">
+                        <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-50 border-b border-slate-200 shrink-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <FileText size={20} className="text-indigo-600 shrink-0" />
+                                <h3 className="text-sm font-bold text-slate-700 truncate">Vista previa del PDF</h3>
                             </div>
-                            <button
-                                onClick={() => {
-                                    setShowPdfPreview(false);
-                                    if (pdfPreviewUrl) {
-                                        URL.revokeObjectURL(pdfPreviewUrl);
-                                        setPdfPreviewUrl(null);
-                                    }
-                                }}
-                                className="p-2 hover:bg-slate-100 rounded-lg transition"
-                                title="Cerrar"
-                            >
-                                <X size={24} className="text-slate-600" />
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={() => window.open(pdfPreviewUrl, '_blank')}
+                                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-xl transition touch-manipulation"
+                                    title="Abrir en nueva pestaña"
+                                >
+                                    <ExternalLink size={14} />
+                                    <span className="hidden sm:inline">Abrir en pestaña</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowPdfPreview(false);
+                                        if (pdfPreviewUrl) {
+                                            URL.revokeObjectURL(pdfPreviewUrl);
+                                            setPdfPreviewUrl(null);
+                                        }
+                                    }}
+                                    className="p-2.5 hover:bg-slate-200 rounded-xl transition text-slate-500 touch-manipulation"
+                                    title="Cerrar"
+                                    aria-label="Cerrar"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
                         </div>
-
-                        {/* Contenedor del PDF */}
-                        <div className="flex-1 overflow-hidden">
+                        <div className="flex-1 min-h-0 overflow-hidden bg-slate-100">
                             <iframe
                                 src={pdfPreviewUrl}
                                 className="w-full h-full border-0"
-                                title="Preview del PDF"
+                                title="Vista previa del PDF"
                             />
                         </div>
                     </div>

@@ -419,7 +419,12 @@ export class BitacoraService {
      */
     static getCleanContent(content) {
         if (!content) return '';
-        return content.replace(/\n\n<!--DIARY_METADATA:.*?-->/, '').replace(/\n\n<!--BITACORA_METADATA:.*?-->/, '').trim();
+        return content
+            .replace(/\n\n<!--DIARY_METADATA:.*?-->/, '')
+            .replace(/\n\n<!--BITACORA_METADATA:.*?-->/, '')
+            // También limpiar metadata de descripciones de fotos en reportes fotográficos
+            .replace(/\n?\s*<!--PHOTO_CAPTIONS:.*?-->$/s, '')
+            .trim();
     }
 
     /**

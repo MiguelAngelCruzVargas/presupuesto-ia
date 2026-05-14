@@ -19,7 +19,7 @@ const Layout = ({ children, title }) => {
 
     React.useEffect(() => {
         const checkMobile = () => {
-            const mobile = window.innerWidth < 768;
+            const mobile = window.innerWidth < 1024;
             setIsMobile(mobile);
             if (!mobile) setIsMobileMenuOpen(false); // Close mobile menu when switching to desktop
         };
@@ -44,23 +44,23 @@ const Layout = ({ children, title }) => {
 
             <Sidebar mobileOpen={isMobileMenuOpen} setMobileOpen={setIsMobileMenuOpen} />
 
-            <main className="flex-1 p-4 md:p-8 overflow-y-auto scrollbar-hide print:ml-0 print:p-0 transition-all duration-300" style={{ marginLeft: `${sidebarWidth}` }}>
+            <main className="flex-1 overflow-y-auto scrollbar-hide p-2 sm:p-3 lg:p-2 print:ml-0 print:p-0 transition-all duration-300" style={{ marginLeft: `${sidebarWidth}` }}>
+
                 <div className="flex justify-between items-center mb-8 print:hidden">
                     <div className="flex items-center gap-3">
                         {/* Hamburger Button for Mobile */}
                         <button
-                            className="md:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                            className="lg:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                             aria-label="Toggle menu"
                         >
                             <Menu size={24} />
                         </button>
 
-                        <h2 className="text-xl font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest hidden md:block">
+                        <h2 className="hidden lg:block text-xl font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
                             {title}
                         </h2>
-                        {/* Show title on mobile too if hidden above, but user only asked for hamburger. Keeping original title logic partially but allowing it to show if needed. Original Code had it hidden on mobile: `hidden md:block`. I will keep it that way for now unless user wants title on mobile. */}
-                        <h2 className="text-lg font-bold text-slate-600 dark:text-slate-300 md:hidden block">
+                        <h2 className="block lg:hidden text-lg font-bold text-slate-600 dark:text-slate-300">
                             {title}
                         </h2>
                     </div>

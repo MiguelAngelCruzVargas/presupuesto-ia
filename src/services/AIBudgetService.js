@@ -799,6 +799,419 @@ Escribe descripciones técnicas, profesionales y claras.`;
     }
 
     /**
+     * Generate a work schedule (cronograma) from budget items.
+     * Returns a normalized structure even if the AI response is invalid.
+     * @param {Array} items
+     * @param {Object} projectInfo
+     * @param {Object} config
+     * @returns {Promise<Object>}
+     */
+    static async generateSchedule(items, projectInfo = {}, config = {}) {
+        if (!Array.isArray(items) || items.length === 0) {
+            throw new Error('No hay partidas para generar el cronograma');
+        }
+
+        const validItems = items.filter(item =>
+            item &&
+            item.description &&
+            Number(item.quantity) > 0
+        );
+
+        if (validItems.length === 0) {
+            throw new Error('Todas las partidas tienen cantidad 0 o son inválidas');
+        }
+
+        const normalizedConfig = {
+            startDate: config.startDate || new Date().toISOString().split('T')[0],
+            workDays: config.workDays || {
+                mon: true,
+                tue: true,
+                wed: true,
+                thu: true,
+                fri: true,
+                sat: true,
+                sun: false
+            },
+            notes: config.notes || ''
+        };
+
+        const scheduleSignature = this.buildScheduleSignature(validItems, projectInfo, normalizedConfig);
+
+        try {
+            const itemsList = validItems.map((item, index) => (
+                `${index + 1}. ${item.description} | cantidad: ${item.quantity} ${item.unit || 'pza'} | categoría: ${item.category || 'General'}`
+            )).join('\n');
+
+            const projectSummary = this.buildProjectContextSummary(validItems, projectInfo);
+            const complexity = this.inferProjectComplexity(validItems, projectInfo);
+
+            const systemPrompt = `
+Eres un residente de obra senior en México especializado en planeación y cronogramas ejecutivos.
+Genera un cronograma de obra realista, ordenado, técnicamente coherente y basado en mejores prácticas constructivas.
+
+Devuelve SOLO JSON válido con esta estructura:
+{
+  "totalDurationWeeks": 12,
+  "phases": [
+    {
+      "name": "Nombre de fase",
+      "durationWeeks": 2,
+      "startWeek": 1,
+      "endWeek": 2,
+      "items": ["Partida 1", "Partida 2"],
+      "resources": ["Cuadrilla", "Herramienta menor"],
+      "risks": ["Clima", "Suministro"],
+      "notes": "Notas de planeación",
+      "isCritical": true
+    }
+  ]
+}
+
+Reglas:
+- Entre 3 y 8 fases.
+- Usa semanas enteras.
+- Orden lógico constructivo, con secuencia de dependencias real.
+- Agrupa partidas por ETAPAS DE OBRA, no una fase por cada partida.
+- Intenta paralelizar actividades compatibles cuando sea razonable.
+- Considera prácticas mexicanas de obra: preliminares, suministros, frentes de trabajo, revisiones y cierre.
+- No repitas partidas entre fases.
+- "items" debe contener descripciones de las partidas asignadas.
+- "name" debe ser una etapa ejecutiva, por ejemplo: "Preliminares", "Cimentación", "Albañilería", "Instalaciones", "Acabados", "Entrega".
+- Si el proyecto es pequeño, usa pocas fases bien agrupadas.
+- Si falta información, asume una secuencia constructiva estándar en México.
+            `.trim();
+
+            const userPrompt = `
+Proyecto: ${projectInfo.project || projectInfo.projectName || projectInfo.name || 'Proyecto sin nombre'}
+Cliente: ${projectInfo.client || 'No especificado'}
+Tipo: ${projectInfo.type || 'General'}
+Ubicación: ${projectInfo.location || 'México'}
+Fecha de inicio: ${normalizedConfig.startDate}
+Complejidad estimada: ${complexity}
+Notas del usuario: ${normalizedConfig.notes || 'Sin notas'}
+Días laborables: ${Object.entries(normalizedConfig.workDays).filter(([, active]) => active).map(([day]) => day).join(', ')}
+
+Resumen técnico del proyecto:
+${projectSummary}
+
+Partidas:
+${itemsList}
+            `.trim();
+
+            const result = await ErrorService.withRetry(
+                () => BackendAIService.sendPrompt(userPrompt, systemPrompt),
+                1,
+                600
+            );
+
+            const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+            const parsed = JSON.parse(this.cleanJson(text));
+            return this.normalizeScheduleResponse(parsed, validItems, normalizedConfig, projectInfo, {
+                scheduleSignature,
+                generationMode: 'ai'
+            });
+        } catch (error) {
+            console.warn('Falling back to local schedule generation:', error);
+            return this.buildFallbackSchedule(validItems, projectInfo, normalizedConfig, {
+                scheduleSignature,
+                generationMode: 'best_practice_fallback'
+            });
+        }
+    }
+
+    static normalizeScheduleResponse(rawSchedule, items, config, projectInfo = {}, metadata = {}) {
+        if (!rawSchedule || typeof rawSchedule !== 'object') {
+            return this.buildFallbackSchedule(items, projectInfo, config, metadata);
+        }
+
+        const phaseSource = Array.isArray(rawSchedule.phases)
+            ? rawSchedule.phases
+            : Array.isArray(rawSchedule.tasks)
+                ? rawSchedule.tasks
+                : [];
+
+        if (phaseSource.length === 0) {
+            return this.buildFallbackSchedule(items, projectInfo, config, metadata);
+        }
+
+        let cursorWeek = 1;
+        const phases = phaseSource.map((phase, index) => {
+            const durationWeeks = Math.max(1, Math.round(Number(phase.durationWeeks || phase.duration || 1)));
+            const startWeek = Math.max(1, Math.round(Number(phase.startWeek || cursorWeek)));
+            const endWeek = Math.max(startWeek, Math.round(Number(phase.endWeek || (startWeek + durationWeeks - 1))));
+            cursorWeek = endWeek + 1;
+
+            return {
+                id: phase.id || generateId(),
+                name: phase.name || `Fase ${index + 1}`,
+                durationWeeks: Math.max(1, endWeek - startWeek + 1),
+                startWeek,
+                endWeek,
+                items: Array.isArray(phase.items) ? phase.items.filter(Boolean) : [],
+                resources: Array.isArray(phase.resources) ? phase.resources.filter(Boolean) : [],
+                risks: Array.isArray(phase.risks) ? phase.risks.filter(Boolean) : [],
+                notes: phase.notes || '',
+                isCritical: Boolean(phase.isCritical)
+            };
+        });
+
+        if (this.looksLikeItemByItemSchedule(phases, items)) {
+            return this.buildFallbackSchedule(items, projectInfo, config, {
+                ...metadata,
+                generationMode: 'best_practice_regrouped'
+            });
+        }
+
+        return this.finalizeSchedule(phases, config, items, projectInfo, metadata);
+    }
+
+    static buildFallbackSchedule(items, projectInfo = {}, config = {}, metadata = {}) {
+        const phaseBuckets = new Map();
+
+        items.forEach(item => {
+            const phaseName = this.inferPhaseName(item);
+            if (!phaseBuckets.has(phaseName)) {
+                phaseBuckets.set(phaseName, []);
+            }
+            phaseBuckets.get(phaseName).push(item);
+        });
+
+        let currentWeek = 1;
+        const entries = Array.from(phaseBuckets.entries());
+
+        const phases = entries.map(([name, phaseItems], index) => {
+            const durationWeeks = Math.max(
+                1,
+                Math.min(
+                    6,
+                    Math.ceil(phaseItems.reduce((sum, item) => sum + this.estimateTaskDurationWeeks(item), 0))
+                )
+            );
+
+            const startWeek = currentWeek;
+            const endWeek = startWeek + durationWeeks - 1;
+            currentWeek = endWeek + 1;
+
+            return {
+                id: generateId(),
+                name,
+                durationWeeks,
+                startWeek,
+                endWeek,
+                items: phaseItems.map(item => item.description),
+                resources: this.inferResourcesForPhase(name),
+                risks: this.inferRisksForPhase(name),
+                notes: index === entries.length - 1 && config.notes
+                    ? `Consideraciones del usuario: ${config.notes}`
+                    : `Cronograma estimado automáticamente${projectInfo.type ? ` para ${projectInfo.type}` : ''}.`,
+                isCritical: index < Math.min(3, entries.length)
+            };
+        });
+
+        return this.finalizeSchedule(phases, config, items, projectInfo, metadata);
+    }
+
+    static finalizeSchedule(phases, config = {}, items = [], projectInfo = {}, metadata = {}) {
+        const startDate = config.startDate || new Date().toISOString().split('T')[0];
+        const normalizedPhases = phases.map(phase => {
+            const phaseStartDate = this.addWorkingDays(startDate, (phase.startWeek - 1) * 7, config.workDays);
+            const phaseEndDate = this.addWorkingDays(phaseStartDate, Math.max(0, phase.durationWeeks * 7 - 1), config.workDays);
+
+            return {
+                ...phase,
+                startDate: phaseStartDate,
+                endDate: phaseEndDate
+            };
+        });
+
+        const totalDurationWeeks = normalizedPhases.length > 0
+            ? Math.max(...normalizedPhases.map(phase => phase.endWeek || 0))
+            : 0;
+
+        const tasks = normalizedPhases.flatMap(phase =>
+            (phase.items || []).map((itemName, index) => ({
+                id: generateId(),
+                name: itemName,
+                phaseName: phase.name,
+                startWeek: phase.startWeek,
+                endWeek: phase.endWeek,
+                durationWeeks: Math.max(1, Math.ceil(phase.durationWeeks / Math.max(1, phase.items.length))),
+                isCritical: phase.isCritical,
+                notes: phase.notes,
+                order: index + 1
+            }))
+        );
+
+        return {
+            startDate,
+            endDate: normalizedPhases.length > 0 ? normalizedPhases[normalizedPhases.length - 1].endDate : startDate,
+            totalDurationWeeks,
+            workDays: config.workDays,
+            notes: config.notes || '',
+            status: 'ready',
+            isInitialized: true,
+            generatedAt: new Date().toISOString(),
+            sourceSignature: metadata.scheduleSignature || this.buildScheduleSignature(items, projectInfo, config),
+            generationMode: metadata.generationMode || 'manual',
+            projectSnapshot: {
+                project: projectInfo.project || projectInfo.projectName || projectInfo.name || '',
+                type: projectInfo.type || 'General',
+                location: projectInfo.location || 'México',
+                itemsCount: items.length
+            },
+            phases: normalizedPhases,
+            tasks
+        };
+    }
+
+    static buildScheduleSignature(items = [], projectInfo = {}, config = {}) {
+        const compactItems = items.map(item => ({
+            d: String(item.description || '').trim().toLowerCase(),
+            q: Number(item.quantity) || 0,
+            u: String(item.unit || '').trim().toLowerCase(),
+            c: String(item.category || '').trim().toLowerCase()
+        }));
+
+        return JSON.stringify({
+            project: String(projectInfo.project || projectInfo.projectName || projectInfo.name || '').trim().toLowerCase(),
+            type: String(projectInfo.type || 'general').trim().toLowerCase(),
+            location: String(projectInfo.location || 'méxico').trim().toLowerCase(),
+            startDate: config.startDate || '',
+            items: compactItems
+        });
+    }
+
+    static buildProjectContextSummary(items = [], projectInfo = {}) {
+        const categorySummary = {};
+        items.forEach(item => {
+            const key = item.category || 'General';
+            categorySummary[key] = (categorySummary[key] || 0) + 1;
+        });
+
+        const categories = Object.entries(categorySummary)
+            .map(([name, count]) => `${name}: ${count} partidas`)
+            .join(', ');
+
+        const keyScopes = [
+            projectInfo.client ? `Cliente: ${projectInfo.client}` : null,
+            projectInfo.type ? `Especialidad: ${projectInfo.type}` : null,
+            projectInfo.location ? `Ubicación: ${projectInfo.location}` : null,
+            categories ? `Distribución por categoría: ${categories}` : null
+        ].filter(Boolean);
+
+        return keyScopes.join('\n');
+    }
+
+    static inferProjectComplexity(items = [], projectInfo = {}) {
+        const count = items.length;
+        const specialty = String(projectInfo.type || '').toLowerCase();
+
+        if (count >= 25 || specialty.includes('estructura') || specialty.includes('obra civil')) {
+            return 'media-alta';
+        }
+        if (count >= 10) {
+            return 'media';
+        }
+        return 'baja';
+    }
+
+    static looksLikeItemByItemSchedule(phases = [], items = []) {
+        if (phases.length < 4) return false;
+
+        const singleItemPhases = phases.filter(phase => (phase.items || []).length <= 1).length;
+        const nearItemsCount = phases.length >= Math.max(4, items.length - 1);
+
+        return nearItemsCount && (singleItemPhases / phases.length) >= 0.75;
+    }
+
+    static inferPhaseName(item) {
+        const text = `${item.category || ''} ${item.description || ''}`.toLowerCase();
+
+        const phaseMatchers = [
+            { name: 'Preliminares y Trazo', terms: ['prelim', 'trazo', 'limpieza', 'demolic', 'despalme', 'preparación'] },
+            { name: 'Excavación y Cimentación', terms: ['excava', 'zapata', 'cimiento', 'ciment', 'plantilla', 'relleno', 'compact'] },
+            { name: 'Estructura', terms: ['losa', 'trabe', 'castillo', 'cadena', 'columna', 'acero', 'concreto', 'estructura'] },
+            { name: 'Albañilería y Cerramientos', terms: ['muro', 'block', 'tabique', 'aplanado', 'albañ', 'cerramiento'] },
+            { name: 'Instalaciones', terms: ['eléctr', 'hidro', 'sanitar', 'tuber', 'cable', 'voz', 'datos', 'aire', 'gas'] },
+            { name: 'Acabados', terms: ['pintura', 'loseta', 'azulejo', 'acabado', 'impermeabil', 'cancel', 'puerta', 'ventana', 'yeso'] },
+            { name: 'Obras Exteriores y Entrega', terms: ['banqueta', 'guarnición', 'jardin', 'limpieza final', 'señal', 'entrega', 'exterior'] }
+        ];
+
+        for (const phase of phaseMatchers) {
+            if (phase.terms.some(term => text.includes(term))) {
+                return phase.name;
+            }
+        }
+
+        return 'Obra General';
+    }
+
+    static estimateTaskDurationWeeks(item) {
+        const quantity = Number(item.quantity) || 1;
+        const unit = (item.unit || '').toLowerCase();
+        const category = (item.category || '').toLowerCase();
+
+        let base = 0.5;
+
+        if (['m3', 'm2'].includes(unit)) base = 1;
+        if (quantity > 50) base += 0.5;
+        if (quantity > 200) base += 0.5;
+        if (category.includes('instal')) base += 0.25;
+        if (category.includes('obra civil') || category.includes('albañ')) base += 0.5;
+
+        return Math.max(0.5, Math.min(2, base));
+    }
+
+    static inferResourcesForPhase(phaseName) {
+        const map = {
+            'Preliminares y Trazo': ['Topógrafo', 'Ayudantes', 'Herramienta menor'],
+            'Excavación y Cimentación': ['Cuadrilla de obra civil', 'Revolvedora', 'Compactador'],
+            'Estructura': ['Oficial albañil', 'Fierrero', 'Cimbreros'],
+            'Albañilería y Cerramientos': ['Cuadrilla de albañilería', 'Andamios', 'Herramienta menor'],
+            'Instalaciones': ['Técnicos instaladores', 'Electricista / Plomero', 'Equipo de prueba'],
+            'Acabados': ['Cuadrilla de acabados', 'Herramienta fina', 'Supervisión'],
+            'Obras Exteriores y Entrega': ['Cuadrilla general', 'Limpieza', 'Supervisión final'],
+            'Obra General': ['Cuadrilla general', 'Herramienta menor']
+        };
+
+        return map[phaseName] || map['Obra General'];
+    }
+
+    static inferRisksForPhase(phaseName) {
+        const map = {
+            'Preliminares y Trazo': ['Interferencias en sitio', 'Accesos restringidos'],
+            'Excavación y Cimentación': ['Lluvia', 'Condiciones de suelo', 'Retraso de concreto'],
+            'Estructura': ['Suministro de acero', 'Curado insuficiente'],
+            'Albañilería y Cerramientos': ['Desviaciones de plomo y nivel', 'Falta de material'],
+            'Instalaciones': ['Cruces entre especialidades', 'Disponibilidad de equipos'],
+            'Acabados': ['Retrasos por entregas', 'Retrabajos por calidad'],
+            'Obras Exteriores y Entrega': ['Detalles pendientes', 'Observaciones de cierre'],
+            'Obra General': ['Clima', 'Coordinación de cuadrillas']
+        };
+
+        return map[phaseName] || map['Obra General'];
+    }
+
+    static addWorkingDays(baseDate, daysToAdd = 0, workDays = {}) {
+        const activeDays = Object.values(workDays || {}).some(Boolean)
+            ? workDays
+            : { mon: true, tue: true, wed: true, thu: true, fri: true, sat: true, sun: false };
+
+        const date = new Date(`${baseDate}T12:00:00`);
+        let remaining = Math.max(0, daysToAdd);
+
+        while (remaining > 0) {
+            date.setDate(date.getDate() + 1);
+            const dayName = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()];
+            if (activeDays[dayName]) {
+                remaining--;
+            }
+        }
+
+        return date.toISOString().split('T')[0];
+    }
+
+    /**
      * Generates a material takeoff (explosión de insumos) based on budget items
      * @param {Array} items - Budget items
      * @returns {Promise<Array>} - List of materials with quantities and estimated costs

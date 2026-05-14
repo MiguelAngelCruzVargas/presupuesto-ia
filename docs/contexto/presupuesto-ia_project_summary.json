@@ -1,0 +1,102 @@
+{
+  "projectName": "presupuesto-ia",
+  "generatedBy": "ProjectGrapher local deterministic analysis",
+  "summary": {
+    "files": 138,
+    "links": 255,
+    "nodes": 138
+  },
+  "languages": {
+    "JavaScript/React": 70,
+    "CSS": 2,
+    "JavaScript": 59,
+    "HTML": 1,
+    "Python": 6
+  },
+  "technologies": [
+    "React",
+    "JavaScript",
+    "CSS",
+    "SCSS/Sass",
+    "Vite",
+    "Vue",
+    "Tailwind CSS",
+    "Express.js",
+    "TypeScript",
+    "HTML",
+    "Python"
+  ],
+  "databases": [],
+  "layers": {
+    "frontend": 73,
+    "backend": 6,
+    "workers": 0,
+    "storage": 3
+  },
+  "entryPoints": [
+    "presupuesto-ia/src/App.jsx",
+    "presupuesto-ia/src/main.jsx"
+  ],
+  "hotspots": [
+    {
+      "path": "presupuesto-ia/src/App.jsx",
+      "importance": 0,
+      "ext": ".jsx"
+    },
+    {
+      "path": "presupuesto-ia/src/main.jsx",
+      "importance": 0,
+      "ext": ".jsx"
+    },
+    {
+      "path": "presupuesto-ia/src/App.css",
+      "importance": 0,
+      "ext": ".css"
+    },
+    {
+      "path": "presupuesto-ia/src/components/ai/AIDescriptionGenerator.jsx",
+      "importance": 0,
+      "ext": ".jsx"
+    },
+    {
+      "path": "presupuesto-ia/src/components/ai/AIPriceHelper.jsx",
+      "importance": 0,
+      "ext": ".jsx"
+    },
+    {
+      "path": "presupuesto-ia/src/components/auth/AdminRoute.jsx",
+      "importance": 0,
+      "ext": ".jsx"
+    },
+    {
+      "path": "presupuesto-ia/src/components/auth/ChangePasswordModal.jsx",
+      "importance": 0,
+      "ext": ".jsx"
+    },
+    {
+      "path": "presupuesto-ia/src/components/auth/InactivityHandler.jsx",
+      "importance": 0,
+      "ext": ".jsx"
+    },
+    {
+      "path": "presupuesto-ia/src/components/bitacora/DiaryEntryModal.jsx",
+      "importance": 0,
+      "ext": ".jsx"
+    },
+    {
+      "path": "presupuesto-ia/src/components/bitacora/LogEntryModal.jsx",
+      "importance": 0,
+      "ext": ".jsx"
+    }
+  ],
+  "agentHint": {
+    "purpose": "Usa este archivo para darle a otro agente una ficha técnica rápida y determinista del proyecto.",
+    "recommendedFiles": [
+      "presupuesto-ia/src/App.jsx",
+      "presupuesto-ia/src/main.jsx",
+      "presupuesto-ia/src/App.css",
+      "presupuesto-ia/src/components/ai/AIDescriptionGenerator.jsx",
+      "presupuesto-ia/src/components/ai/AIPriceHelper.jsx"
+    ]
+  }
+}

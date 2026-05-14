@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatCurrency, numberToWords } from '../utils/format';
 import { PDFTemplateService } from './PDFTemplateService';
+import { BudgetDocumentService } from './BudgetDocumentService';
 
 export class PDFService {
     static exportBudget(projectInfo, items, total, subtotal, taxAmount) {
@@ -134,9 +135,25 @@ export class PDFService {
         doc.save(`Presupuesto_${projectInfo.project.replace(/\s+/g, '_')}.pdf`);
     }
 
-    static async generateBudgetPDF(doc, { projectInfo, items, subtotal, indirectCosts = 0, profit = 0, tax, total, technicalDescription = '', isPreview = false }) {
+    static async generateBudgetPDF(doc, {
+        projectInfo,
+        items,
+        subtotal,
+        indirectCosts = 0,
+        profit = 0,
+        tax,
+        total,
+        technicalDescription = '',
+        isPreview = false,
+        budgetDocumentMeta = null
+    }) {
         // Cargar plantilla activa
         const template = PDFTemplateService.getActiveTemplate();
+        const documentMeta = budgetDocumentMeta || BudgetDocumentService.getDraftBudgetDocument({
+            projectName: projectInfo?.project,
+            clientName: projectInfo?.client,
+            createdAt: new Date()
+        });
 
         // Usar valores de la plantilla o valores por defecto
         const primaryColor = template?.headerColor || [26, 35, 126]; // Dark Blue por defecto
@@ -249,23 +266,6 @@ export class PDFService {
             doc.text(headerSubtext, textX, subtextY, { align: textAlign });
         }
 
-        // --- GENERAR NÚMERO DE PRESUPUESTO AUTOMÁTICO ---
-        const getNextBudgetNumber = () => {
-            const key = 'presugenius_last_budget_number';
-            const lastNumber = parseInt(localStorage.getItem(key) || '0', 10);
-
-            if (isPreview) {
-                // En vista previa, mostramos el siguiente número pero NO lo guardamos
-                return (lastNumber + 1).toString().padStart(2, '0');
-            } else {
-                // En descarga real, incrementamos y guardamos
-                const nextNumber = lastNumber + 1;
-                localStorage.setItem(key, nextNumber.toString());
-                return nextNumber.toString().padStart(2, '0');
-            }
-        };
-        const budgetNumber = getNextBudgetNumber();
-
         // --- PROJECT INFO ---
         const startY = 45;
         doc.setTextColor(0, 0, 0);
@@ -302,7 +302,8 @@ export class PDFService {
         doc.setFontSize(7);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(100, 100, 100); // Color gris
-        doc.text(`Presupuesto No. ${budgetNumber}`, 210 - rightMargin, startY + 12, { align: 'right' });
+        const budgetLabel = isPreview ? `${documentMeta.budgetNumber} (vista previa)` : documentMeta.budgetNumber;
+        doc.text(`Presupuesto No. ${budgetLabel}`, 210 - rightMargin, startY + 12, { align: 'right' });
 
         // --- TABLE ---
         const groupedItems = items.reduce((acc, item) => {
@@ -457,6 +458,8 @@ export class PDFService {
             doc.setTextColor(150);
             doc.text(template.footerText, 105, pageHeight - 10, { align: 'center' });
         }
+
+        return documentMeta;
     }
 
     static exportMaterials(projectInfo, materials) {

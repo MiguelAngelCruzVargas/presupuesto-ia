@@ -22,37 +22,86 @@ export class PDFReportService {
         const supervisorName = options.supervisorName || projectInfo.supervisorName || 'Ing. Responsable';
         const supervisorRole = options.supervisorRole || projectInfo.supervisorRole || 'DIRECTOR DE OBRAS PÚBLICAS';
         const concepts = options.concepts || this.extractConceptsFromLogs(logs);
-        
+        const ubicacion = options.ubicacion || projectInfo.ubicacion || projectInfo.location || '';
+        const fechaFormateada = reportDate ? (() => {
+            try {
+                const d = new Date(reportDate);
+                return isNaN(d.getTime()) ? reportDate : d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            } catch (_) { return reportDate; }
+        })() : '';
+
         // Valores editables de las firmas
         const contractorTitle = options.contractorTitle || projectInfo.contractorTitle || 'EL CONTRATISTA';
         const contractorName = options.contractorName || projectInfo.contractorName || contractor;
         const contractorRole = options.contractorRole || projectInfo.contractorRole || 'ADMINISTRADOR ÚNICO';
         const municipalityTitle = options.municipalityTitle || projectInfo.municipalityTitle || 'H. AYUNTAMIENTO';
+        // Opcionales: color de encabezado y logo
+        // Color más intenso para que se note claramente en pantalla y en impresión
+        const headerColor = options.headerColor || [199, 210, 254]; // Indigo muy claro por defecto
+        const logoUrl = options.logoUrl || projectInfo.logoUrl || null;
 
         // --- Helper Functions ---
-        const addHeader = () => {
-            // Título principal en recuadro con borde grueso
-            const titleBoxHeight = 10;
-            const titleY = margin + 1; // Subido un poco más arriba
+        const addHeader = async () => {
+            // Encabezado de constructora (membrete) + título pequeño del reporte
+            const headerTop = margin;
+            const headerHeight = 16;
 
-            // Dibujar recuadro del título con borde grueso
-            doc.setLineWidth(1.2);
+            // Banda de color para el encabezado de la constructora
+            doc.setLineWidth(0.8);
             doc.setDrawColor(0);
-            doc.rect(margin, titleY, pageWidth - (margin * 2), titleBoxHeight);
+            doc.setFillColor(headerColor[0], headerColor[1], headerColor[2]);
+            doc.rect(margin, headerTop, pageWidth - (margin * 2), headerHeight, 'FD');
 
-            // Título centrado dentro del recuadro
-            doc.setFontSize(13);
+            // Logo opcional a la izquierda del encabezado
+            let textX = margin + 4;
+            const textYBase = headerTop + 6;
+            if (logoUrl) {
+                try {
+                    const logoData = await this.fetchImage(logoUrl);
+                    const logoHeight = headerHeight - 4;
+                    const logoWidth = logoHeight * 1.5;
+                    const logoX = margin + 3;
+                    const logoY = headerTop + 2;
+                    doc.addImage(logoData, 'PNG', logoX, logoY, logoWidth, logoHeight);
+                    textX = logoX + logoWidth + 4;
+                } catch (e) {
+                    console.error('Error cargando logo para encabezado PDF:', e);
+                }
+            }
+
+            // Datos de la constructora (nombre, RFC u otros)
+            const companyName = options.companyName || projectInfo.companyName || contractor;
+            const companyRfc = options.companyRfc || projectInfo.companyRfc || '';
+            const companyExtra = options.companyExtra || projectInfo.companyExtra || '';
+
             doc.setFont('helvetica', 'bold');
-            doc.text("REPORTE FOTOGRAFICO DE OBRA", pageWidth / 2, titleY + 6.5, { align: 'center' });
+            doc.setFontSize(11);
+            doc.text((companyName || '').toUpperCase(), textX, textYBase);
+
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            let extraLineY = textYBase + 4;
+            if (companyRfc) {
+                doc.text(`RFC: ${companyRfc.toUpperCase()}`, textX, extraLineY);
+                extraLineY += 3.5;
+            }
+            if (companyExtra) {
+                doc.text(companyExtra.toUpperCase(), textX, extraLineY);
+            }
+
+            // Título del reporte, más pequeño, debajo del membrete
+            const titleY = headerTop + headerHeight + 5;
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.text("REPORTE FOTOGRAFICO DE OBRA", pageWidth / 2, titleY, { align: 'center' });
 
             // Preparar datos para la tabla
+            // Solo mostrar el nombre de la obra; la ubicación va en su propia celda
             const obraText = projectInfo.project || projectInfo.name || 'Proyecto';
-            const obraLocation = projectInfo.location ? `, ${projectInfo.location}` : '';
-            const fullObraText = `${obraText}${obraLocation}`;
             const conceptsText = Array.isArray(concepts) ? concepts.join(', ') : concepts;
 
-            // Crear tabla real usando autoTable
-            const tableStartY = titleY + titleBoxHeight + 5;
+            // Crear tabla real usando autoTable justo debajo del título
+            const tableStartY = titleY + 4;
 
             // Verificar que autoTable esté disponible
             if (typeof autoTable !== 'function') {
@@ -67,13 +116,13 @@ export class PDFReportService {
                 body: [
                     [
                         { content: 'CONTRATISTA:\n' + contractor, styles: { fontSize: 7.5, cellPadding: 2 } },
-                        { content: 'OBRA:\n' + fullObraText, styles: { fontSize: 7.5, cellPadding: 2 } },
+                        { content: 'OBRA:\n' + obraText, styles: { fontSize: 7.5, cellPadding: 2 } },
                         { content: 'CONTRATO No.:\n' + contractNumber, styles: { fontSize: 7.5, cellPadding: 2 } }
                     ],
                     [
-                        { content: '', styles: { cellPadding: 2 } },
+                        { content: 'UBICACIÓN:\n' + ubicacion, styles: { fontSize: 7.5, cellPadding: 2 } },
                         { content: 'CONCEPTOS:\n' + conceptsText, styles: { fontSize: 7.5, cellPadding: 2 } },
-                        { content: '', styles: { cellPadding: 2 } }
+                        { content: 'FECHA:\n' + fechaFormateada, styles: { fontSize: 7.5, cellPadding: 2 } }
                     ]
                 ],
                 columnStyles: {
@@ -144,28 +193,31 @@ export class PDFReportService {
         const logsByConcept = this.groupLogsByConcept(logs);
 
         // --- Content Generation ---
-        const headerEndY = addHeader(); // Obtener posición final del header
+        const headerEndY = await addHeader(); // Obtener posición final del header
 
-        // Configuración de fotos (formato 2 filas x 4 columnas para formato horizontal)
-        let yPos = headerEndY + 3; // Inicio después del header con menos espacio
-        const photoWidth = 52; // mm (imágenes más pequeñas)
-        const photoHeight = 38; // mm (imágenes más pequeñas)
-        const gapX = 8; // Espacio horizontal entre fotos
-        const gapY = 50; // Espacio vertical (foto + caption) ajustado para imágenes más pequeñas
-        const photosPerRow = 4; // 4 fotos por fila en formato horizontal
-        const photosPerPage = 8; // 2 filas x 4 columnas
+        // Configuración de fotos: 6 por hoja (2 filas x 3 columnas) en A4 horizontal
+        let yPos = headerEndY + 4;
+        // Fotos ligeramente más chicas para dejar más espacio en la página
+        const photoWidth = 78;   // mm
+        const photoHeight = 45;  // mm
+        const gapX = 6;
+        const gapY = 56;        // espacio vertical por bloque (foto + caption)
+        const photosPerRow = 3;
+        const photosPerPage = 6;
 
-        // Recolectar todas las fotos con sus captions (usando content como descripción)
+
+        // Recolectar fotos: concepto general va arriba (CONCEPTOS); bajo cada foto solo descripción opcional si existe
         const allPhotos = [];
         for (const [conceptName, conceptLogs] of Object.entries(logsByConcept)) {
             for (const log of conceptLogs) {
                 if (!log.photos || log.photos.length === 0) continue;
-                // Usar el content como descripción (que es lo que el usuario escribe en el modal)
-                const description = log.content || log.subject || `Fotografía del concepto: ${conceptName}`;
-                for (const photoUrl of log.photos) {
+                const { photoCaptions: savedCaptions } = this.parsePhotoReportContent(log.content || '');
+                const photos = log.photos || [];
+                for (let i = 0; i < photos.length; i++) {
+                    const optionalCaption = (savedCaptions[i] || '').trim();
                     allPhotos.push({
-                        url: photoUrl,
-                        caption: description, // Descripción que el usuario escribió
+                        url: photos[i],
+                        caption: optionalCaption,
                         concept: conceptName
                     });
                 }
@@ -210,12 +262,14 @@ export class PDFReportService {
                 doc.setDrawColor(0);
                 doc.rect(xPos, currentYPos, photoWidth, photoHeight);
 
-                // Caption debajo de la foto (formato del ejemplo: texto descriptivo)
-                doc.setFontSize(7);
-                doc.setFont('helvetica', 'normal');
-                const splitCaption = doc.splitTextToSize(photo.caption.toUpperCase(), photoWidth - 2);
-                const captionY = currentYPos + photoHeight + 5;
-                doc.text(splitCaption, xPos + 1, captionY);
+                // Solo mostrar descripción opcional bajo la foto si el usuario puso algo (no repetir concepto general)
+                if (photo.caption) {
+                    doc.setFontSize(6);
+                    doc.setFont('helvetica', 'normal');
+                    const splitCaption = doc.splitTextToSize(photo.caption.toUpperCase(), photoWidth - 4);
+                    const captionY = currentYPos + photoHeight + 4;
+                    doc.text(splitCaption.length ? splitCaption[0] : '', xPos + 2, captionY);
+                }
 
                 console.log(`✓ Imagen ${photoIndex + 1} agregada correctamente`);
 
@@ -258,36 +312,84 @@ export class PDFReportService {
         const supervisorRole = options.supervisorRole || projectInfo.supervisorRole || 'DIRECTOR DE OBRAS PÚBLICAS';
         const concepts = options.concepts || this.extractConceptsFromLogs(logs);
         const obra = options.obra || projectInfo.project || projectInfo.name || 'Proyecto';
-        
+        const ubicacion = options.ubicacion || projectInfo.ubicacion || projectInfo.location || '';
+        const fechaFormateada = reportDate ? (() => {
+            try {
+                const d = new Date(reportDate);
+                return isNaN(d.getTime()) ? reportDate : d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            } catch (_) { return reportDate; }
+        })() : '';
+
         // Valores editables de las firmas
         const contractorTitle = options.contractorTitle || projectInfo.contractorTitle || 'EL CONTRATISTA';
         const contractorName = options.contractorName || projectInfo.contractorName || contractor;
         const contractorRole = options.contractorRole || projectInfo.contractorRole || 'ADMINISTRADOR ÚNICO';
         const municipalityTitle = options.municipalityTitle || projectInfo.municipalityTitle || 'H. AYUNTAMIENTO';
+        // Opcionales: color de encabezado y logo
+        const headerColor = options.headerColor || [199, 210, 254]; // Indigo muy claro por defecto
+        const logoUrl = options.logoUrl || projectInfo.logoUrl || null;
 
         // --- Helper Functions ---
-        const addHeader = () => {
-            // Título principal en recuadro con borde grueso (formato exacto del ejemplo)
-            const titleBoxHeight = 10;
-            const titleY = margin + 1; // Subido un poco más arriba
+        const addHeader = async () => {
+            // Encabezado de constructora (membrete) + título pequeño del reporte (preview)
+            const headerTop = margin;
+            const headerHeight = 16;
 
-            // Dibujar recuadro del título con borde grueso
-            doc.setLineWidth(1);
+            // Banda de color para el encabezado de la constructora
+            doc.setLineWidth(0.8);
             doc.setDrawColor(0);
-            doc.rect(margin, titleY, pageWidth - (margin * 2), titleBoxHeight);
+            doc.setFillColor(headerColor[0], headerColor[1], headerColor[2]);
+            doc.rect(margin, headerTop, pageWidth - (margin * 2), headerHeight, 'FD');
 
-            // Título centrado dentro del recuadro
-            doc.setFontSize(14);
+            // Logo opcional a la izquierda del encabezado
+            let textX = margin + 4;
+            const textYBase = headerTop + 6;
+            if (logoUrl) {
+                try {
+                    const logoData = await this.fetchImage(logoUrl);
+                    const logoHeight = headerHeight - 4;
+                    const logoWidth = logoHeight * 1.5;
+                    const logoX = margin + 3;
+                    const logoY = headerTop + 2;
+                    doc.addImage(logoData, 'PNG', logoX, logoY, logoWidth, logoHeight);
+                    textX = logoX + logoWidth + 4;
+                } catch (e) {
+                    console.error('Error cargando logo para encabezado PDF (preview):', e);
+                }
+            }
+
+            // Datos de la constructora (nombre, RFC u otros)
+            const companyName = options.companyName || projectInfo.companyName || contractor;
+            const companyRfc = options.companyRfc || projectInfo.companyRfc || '';
+            const companyExtra = options.companyExtra || projectInfo.companyExtra || '';
+
             doc.setFont('helvetica', 'bold');
-            doc.text("REPORTE FOTOGRAFICO DE OBRA", pageWidth / 2, titleY + 6, { align: 'center' });
+            doc.setFontSize(11);
+            doc.text((companyName || '').toUpperCase(), textX, textYBase);
+
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            let extraLineY = textYBase + 4;
+            if (companyRfc) {
+                doc.text(`RFC: ${companyRfc.toUpperCase()}`, textX, extraLineY);
+                extraLineY += 3.5;
+            }
+            if (companyExtra) {
+                doc.text(companyExtra.toUpperCase(), textX, extraLineY);
+            }
+
+            // Título del reporte, más pequeño, debajo del membrete
+            const titleY = headerTop + headerHeight + 5;
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.text("REPORTE FOTOGRAFICO DE OBRA", pageWidth / 2, titleY, { align: 'center' });
 
             // Preparar datos para la tabla
-            const obraLocation = projectInfo.location ? `, ${projectInfo.location}` : '';
-            const fullObraText = `${obra}${obraLocation}`;
+            // Solo mostrar el nombre de la obra; la ubicación va en su propia celda
             const conceptsText = Array.isArray(concepts) ? concepts.join(', ') : concepts;
 
             // Crear tabla real usando autoTable
-            const tableStartY = titleY + titleBoxHeight + 5;
+            const tableStartY = titleY + 4;
 
             // Verificar que autoTable esté disponible
             if (typeof autoTable !== 'function') {
@@ -302,13 +404,13 @@ export class PDFReportService {
                 body: [
                     [
                         { content: 'CONTRATISTA:\n' + contractor, styles: { fontSize: 8, cellPadding: 2 } },
-                        { content: 'OBRA:\n' + fullObraText, styles: { fontSize: 8, cellPadding: 2 } },
+                        { content: 'OBRA:\n' + obra, styles: { fontSize: 8, cellPadding: 2 } },
                         { content: 'CONTRATO No.:\n' + contractNumber, styles: { fontSize: 8, cellPadding: 2 } }
                     ],
                     [
-                        { content: '', styles: { cellPadding: 2 } },
+                        { content: 'UBICACIÓN:\n' + ubicacion, styles: { fontSize: 8, cellPadding: 2 } },
                         { content: 'CONCEPTOS:\n' + conceptsText, styles: { fontSize: 8, cellPadding: 2 } },
-                        { content: '', styles: { cellPadding: 2 } }
+                        { content: 'FECHA:\n' + fechaFormateada, styles: { fontSize: 8, cellPadding: 2 } }
                     ]
                 ],
                 columnStyles: {
@@ -373,30 +475,31 @@ export class PDFReportService {
         const logsByConcept = this.groupLogsByConcept(logs);
 
         // --- Content Generation ---
-        const headerEndY = addHeader(); // Obtener posición final del header
+        const headerEndY = await addHeader(); // Obtener posición final del header
 
-        // Configuración de fotos (formato 2 filas x 4 columnas para formato horizontal)
-        let yPos = headerEndY + 3; // Inicio después del header con menos espacio
-        const photoWidth = 52; // mm (imágenes más pequeñas)
-        const photoHeight = 38; // mm (imágenes más pequeñas)
-        const gapX = 8; // Espacio horizontal entre fotos
-        const gapY = 50; // Espacio vertical (foto + caption) ajustado para imágenes más pequeñas
-        const photosPerRow = 4; // 4 fotos por fila en formato horizontal
-        const photosPerPage = 8; // 2 filas x 4 columnas
+        // Configuración de fotos: 6 por hoja (2 filas x 3 columnas) en A4 horizontal
+        let yPos = headerEndY + 4;
+        // Fotos ligeramente más chicas para dejar más espacio en la página (preview)
+        const photoWidth = 78;
+        const photoHeight = 45;
+        const gapX = 6;
+        const gapY = 56;
+        const photosPerRow = 3;
+        const photosPerPage = 6;
 
-        // Recolectar todas las fotos con sus captions
+
+        // Recolectar fotos: bajo cada foto solo descripción opcional (concepto general no se repite)
         const allPhotos = [];
         for (const [conceptName, conceptLogs] of Object.entries(logsByConcept)) {
             for (const log of conceptLogs) {
                 if (!log.photos || log.photos.length === 0) continue;
-                // Usar photoCaptions si están disponibles, sino usar content
+                const { photoCaptions: savedCaptions } = this.parsePhotoReportContent(log.content || '');
                 const photos = log.photos || [];
-                const captions = log.photoCaptions || [];
                 for (let i = 0; i < photos.length; i++) {
-                    const caption = captions[i] || log.content || log.subject || `Fotografía del concepto: ${conceptName}`;
+                    const optionalCaption = (savedCaptions[i] || '').trim();
                     allPhotos.push({
                         url: photos[i],
-                        caption: caption,
+                        caption: optionalCaption,
                         concept: conceptName
                     });
                 }
@@ -412,7 +515,7 @@ export class PDFReportService {
             if (photoIndex > 0 && (photoIndex - pageStartIndex) >= photosPerPage) {
                 addFooter();
                 doc.addPage('landscape'); // Nueva página también en horizontal
-                const newHeaderEndY = addHeader(); // Obtener posición final del header en nueva página
+                const newHeaderEndY = await addHeader(); // Obtener posición final del header en nueva página
                 yPos = newHeaderEndY + 3; // Inicio después del header con menos espacio
                 pageStartIndex = photoIndex;
             }
@@ -440,12 +543,14 @@ export class PDFReportService {
                 doc.setDrawColor(0);
                 doc.rect(xPos, currentYPos, photoWidth, photoHeight);
 
-                // Caption debajo de la foto (formato del ejemplo: texto descriptivo)
-                doc.setFontSize(7);
-                doc.setFont('helvetica', 'normal');
-                const splitCaption = doc.splitTextToSize(photo.caption.toUpperCase(), photoWidth - 2);
-                const captionY = currentYPos + photoHeight + 5;
-                doc.text(splitCaption, xPos + 1, captionY);
+                // Solo mostrar descripción opcional bajo la foto si existe (no repetir concepto general)
+                if (photo.caption) {
+                    doc.setFontSize(6);
+                    doc.setFont('helvetica', 'normal');
+                    const splitCaption = doc.splitTextToSize(photo.caption.toUpperCase(), photoWidth - 4);
+                    const captionY = currentYPos + photoHeight + 4;
+                    doc.text(splitCaption.length ? splitCaption[0] : '', xPos + 2, captionY);
+                }
 
             } catch (err) {
                 console.error(`Error adding image ${photoIndex + 1} to PDF:`, err);
@@ -569,6 +674,27 @@ export class PDFReportService {
         return content.replace(/<!--BITACORA_METADATA:.*?-->/, '').trim();
     }
 
+    /**
+     * Parsea content de un log de reporte fotográfico: extrae concepto general y descripciones opcionales por foto.
+     * El concepto general va arriba (CONCEPTOS); bajo cada foto solo se muestra descripción opcional si la hay.
+     * @param {string} content
+     * @returns {{ cleanContent: string, photoCaptions: string[] }}
+     */
+    static parsePhotoReportContent(content) {
+        if (!content) return { cleanContent: '', photoCaptions: [] };
+        const match = content.match(/<!--PHOTO_CAPTIONS:(.*?)-->$/s);
+        let photoCaptions = [];
+        let cleanContent = content;
+        if (match) {
+            try {
+                photoCaptions = JSON.parse(match[1].trim());
+                if (!Array.isArray(photoCaptions)) photoCaptions = [];
+            } catch (_) {}
+            cleanContent = content.replace(/\n?\s*<!--PHOTO_CAPTIONS:.*?-->$/s, '').trim();
+        }
+        return { cleanContent, photoCaptions };
+    }
+
     static async generateBitacoraReport(projectInfo, logs, reportDate, options = {}) {
         // Validar y depurar logs
         console.log('generateBitacoraReport llamado con', logs?.length || 0, 'logs');
@@ -591,7 +717,7 @@ export class PDFReportService {
         const margin = 15;
         const gutter = 8; // Espacio entre columnas
         const columnWidth = (pageWidth - (margin * 2) - gutter) / 2; // Dos columnas con espacio entre ellas
-        
+
         // Colores profesionales
         const primaryColor = [79, 70, 229]; // Indigo
         const secondaryColor = [251, 191, 36]; // Amber
@@ -604,40 +730,40 @@ export class PDFReportService {
             // Fondo del header con gradiente
             doc.setFillColor(...primaryColor);
             doc.rect(0, 0, pageWidth, 35, 'F');
-            
+
             // Título principal
             doc.setFontSize(20);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(255, 255, 255);
             doc.text("BITÁCORA DE OBRA", pageWidth / 2, 18, { align: 'center' });
-            
+
             // Subtítulo
             doc.setFontSize(9);
             doc.setFont('helvetica', 'normal');
             doc.text("DOCUMENTO OFICIAL DE SEGUIMIENTO", pageWidth / 2, 26, { align: 'center' });
-            
+
             // Línea decorativa
             doc.setDrawColor(255, 255, 255);
             doc.setLineWidth(0.5);
             doc.line(margin, 32, pageWidth - margin, 32);
-            
+
             return 40; // Retornar posición Y después del header
         };
 
         // Helper para agregar footer con firma
         const addFooter = (pageNum, totalPages) => {
             const footerY = pageHeight - 50;
-            
+
             // Línea separadora
             doc.setLineWidth(0.3);
             doc.setDrawColor(200, 200, 200);
             doc.line(margin, footerY, pageWidth - margin, footerY);
-            
+
             // Sección de firma
             const signatureY = footerY + 8;
             doc.setLineWidth(0.5);
             doc.setDrawColor(0, 0, 0);
-            
+
             // Línea de firma izquierda
             const leftSigX = margin + 50;
             doc.line(leftSigX - 40, signatureY, leftSigX + 40, signatureY);
@@ -648,7 +774,7 @@ export class PDFReportService {
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7);
             doc.text("Firma y Sello", leftSigX, signatureY + 11, { align: 'center' });
-            
+
             // Línea de firma derecha
             const rightSigX = pageWidth - margin - 50;
             doc.line(rightSigX - 40, signatureY, rightSigX + 40, signatureY);
@@ -658,7 +784,7 @@ export class PDFReportService {
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7);
             doc.text("Firma y Sello", rightSigX, signatureY + 11, { align: 'center' });
-            
+
             // Información de página
             doc.setFontSize(7);
             doc.setTextColor(150, 150, 150);
@@ -679,7 +805,7 @@ export class PDFReportService {
         doc.setDrawColor(...secondaryColor);
         doc.setLineWidth(0.5);
         doc.rect(margin, yPos, pageWidth - (margin * 2), 18, 'FD');
-        
+
         yPos += 5;
         doc.setFontSize(9);
         doc.setFont('helvetica', 'bold');
@@ -698,11 +824,11 @@ export class PDFReportService {
         doc.setFont('helvetica', 'bold');
         doc.text("FECHA:", margin + 5, yPos);
         doc.setFont('helvetica', 'normal');
-        doc.text(new Date(reportDate).toLocaleDateString('es-MX', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
+        doc.text(new Date(reportDate).toLocaleDateString('es-MX', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
         }), margin + 28, yPos);
 
         yPos += 12;
@@ -716,7 +842,7 @@ export class PDFReportService {
         // Procesar cada nota en dos columnas
         for (const log of sortedLogs) {
             let logProcessed = false;
-            
+
             while (!logProcessed) {
                 // Determinar en qué columna colocar la nota
                 const useLeftColumn = currentColumn === 0;
@@ -750,21 +876,21 @@ export class PDFReportService {
 
                 // Tarjeta de nota con diseño elegante
                 const noteWidth = columnWidth - (columnMargin * 2);
-                
+
                 // Header de la nota con fondo de color
                 doc.setFillColor(...primaryColor);
                 doc.rect(columnX + columnMargin, currentY, noteWidth, 10, 'F');
-                
+
                 doc.setFontSize(9);
                 doc.setFont('helvetica', 'bold');
                 doc.setTextColor(255, 255, 255);
                 doc.text(`FOLIO #${log.note_number || 'N/A'}`, columnX + columnMargin + 3, currentY + 6);
-                
+
                 doc.setFontSize(7);
                 doc.setFont('helvetica', 'normal');
                 const classification = (log.classification || 'Informe').toUpperCase();
                 doc.text(classification, columnX + columnMargin + 35, currentY + 6);
-                
+
                 currentY += 12;
 
                 // Asunto
@@ -807,11 +933,11 @@ export class PDFReportService {
                     doc.setTextColor(...primaryColor);
                     doc.text("INFO ADICIONAL:", columnX + columnMargin + 3, currentY);
                     currentY += 4;
-                    
+
                     doc.setFontSize(7);
                     doc.setFont('helvetica', 'normal');
                     doc.setTextColor(51, 65, 85);
-                    
+
                     if (metadata.weather) {
                         doc.text(`• Clima: ${metadata.weather}`, columnX + columnMargin + 5, currentY);
                         currentY += 4;
@@ -834,7 +960,7 @@ export class PDFReportService {
                     doc.setTextColor(139, 92, 246);
                     doc.text("OBSERVACIONES:", columnX + columnMargin + 3, currentY);
                     currentY += 4;
-                    
+
                     doc.setFontSize(7);
                     doc.setFont('helvetica', 'italic');
                     doc.setTextColor(71, 85, 105);
@@ -852,7 +978,7 @@ export class PDFReportService {
                 // Badges de información (más pequeños para caber)
                 const badgeY = currentY;
                 let badgeX = columnX + columnMargin + 3;
-                
+
                 // Badge de avance
                 doc.setFillColor(...primaryColor);
                 doc.rect(badgeX, badgeY, 22, 6, 'F');
@@ -891,12 +1017,12 @@ export class PDFReportService {
                     rightY = currentY + 5;
                     currentColumn = 0; // Cambiar a columna izquierda para la próxima nota
                 }
-                
+
                 logProcessed = true; // Marcar como procesado
                 console.log(`  Nota ${log.note_number} renderizada exitosamente en Y=${noteStartY} a Y=${currentY}`);
             }
         }
-        
+
         console.log('Renderizado completado. Total de notas procesadas:', sortedLogs.length);
 
         // Footer final
@@ -922,7 +1048,7 @@ export class PDFReportService {
         const margin = 15;
         const gutter = 8; // Espacio entre columnas
         const columnWidth = (pageWidth - (margin * 2) - gutter) / 2; // Dos columnas con espacio entre ellas
-        
+
         // Colores profesionales
         const primaryColor = [79, 70, 229]; // Indigo
         const secondaryColor = [251, 191, 36]; // Amber
@@ -935,40 +1061,40 @@ export class PDFReportService {
             // Fondo del header con gradiente
             doc.setFillColor(...primaryColor);
             doc.rect(0, 0, pageWidth, 35, 'F');
-            
+
             // Título principal
             doc.setFontSize(20);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(255, 255, 255);
             doc.text("BITÁCORA DE OBRA", pageWidth / 2, 18, { align: 'center' });
-            
+
             // Subtítulo
             doc.setFontSize(9);
             doc.setFont('helvetica', 'normal');
             doc.text("DOCUMENTO OFICIAL DE SEGUIMIENTO", pageWidth / 2, 26, { align: 'center' });
-            
+
             // Línea decorativa
             doc.setDrawColor(255, 255, 255);
             doc.setLineWidth(0.5);
             doc.line(margin, 32, pageWidth - margin, 32);
-            
+
             return 40; // Retornar posición Y después del header
         };
 
         // Helper para agregar footer con firma
         const addFooter = (pageNum, totalPages) => {
             const footerY = pageHeight - 50;
-            
+
             // Línea separadora
             doc.setLineWidth(0.3);
             doc.setDrawColor(200, 200, 200);
             doc.line(margin, footerY, pageWidth - margin, footerY);
-            
+
             // Sección de firma
             const signatureY = footerY + 8;
             doc.setLineWidth(0.5);
             doc.setDrawColor(0, 0, 0);
-            
+
             // Línea de firma izquierda
             const leftSigX = margin + 50;
             doc.line(leftSigX - 40, signatureY, leftSigX + 40, signatureY);
@@ -979,7 +1105,7 @@ export class PDFReportService {
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7);
             doc.text("Firma y Sello", leftSigX, signatureY + 11, { align: 'center' });
-            
+
             // Línea de firma derecha
             const rightSigX = pageWidth - margin - 50;
             doc.line(rightSigX - 40, signatureY, rightSigX + 40, signatureY);
@@ -989,7 +1115,7 @@ export class PDFReportService {
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7);
             doc.text("Firma y Sello", rightSigX, signatureY + 11, { align: 'center' });
-            
+
             // Información de página
             doc.setFontSize(7);
             doc.setTextColor(150, 150, 150);
@@ -1010,7 +1136,7 @@ export class PDFReportService {
         doc.setDrawColor(...secondaryColor);
         doc.setLineWidth(0.5);
         doc.rect(margin, yPos, pageWidth - (margin * 2), 18, 'FD');
-        
+
         yPos += 5;
         doc.setFontSize(9);
         doc.setFont('helvetica', 'bold');
@@ -1029,11 +1155,11 @@ export class PDFReportService {
         doc.setFont('helvetica', 'bold');
         doc.text("FECHA:", margin + 5, yPos);
         doc.setFont('helvetica', 'normal');
-        doc.text(new Date(reportDate).toLocaleDateString('es-MX', { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric' 
+        doc.text(new Date(reportDate).toLocaleDateString('es-MX', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
         }), margin + 28, yPos);
 
         yPos += 12;
@@ -1047,7 +1173,7 @@ export class PDFReportService {
         // Procesar cada nota en dos columnas
         for (const log of sortedLogs) {
             let logProcessed = false;
-            
+
             while (!logProcessed) {
                 // Determinar en qué columna colocar la nota
                 const useLeftColumn = currentColumn === 0;
@@ -1079,142 +1205,142 @@ export class PDFReportService {
                 const metadata = this.extractBitacoraMetadata(log.content);
                 const cleanContent = this.getCleanContent(log.content);
 
-            // Tarjeta de nota con diseño elegante
-            const noteWidth = columnWidth - (columnMargin * 2);
-            
-            // Header de la nota con fondo de color
-            doc.setFillColor(...primaryColor);
-            doc.rect(columnX + columnMargin, currentY, noteWidth, 10, 'F');
-            
-            doc.setFontSize(9);
-            doc.setFont('helvetica', 'bold');
-            doc.setTextColor(255, 255, 255);
-            doc.text(`FOLIO #${log.note_number || 'N/A'}`, columnX + columnMargin + 3, currentY + 6);
-            
-            doc.setFontSize(7);
-            doc.setFont('helvetica', 'normal');
-            const classification = (log.classification || 'Informe').toUpperCase();
-            doc.text(classification, columnX + columnMargin + 35, currentY + 6);
-            
-            currentY += 12;
+                // Tarjeta de nota con diseño elegante
+                const noteWidth = columnWidth - (columnMargin * 2);
 
-            // Asunto
-            doc.setFontSize(10);
-            doc.setFont('helvetica', 'bold');
-            doc.setTextColor(...darkGray);
-            const subjectLines = doc.splitTextToSize(log.subject || 'Sin asunto', noteWidth - 6);
-            doc.text(subjectLines, columnX + columnMargin + 3, currentY);
-            currentY += subjectLines.length * 5 + 3;
+                // Header de la nota con fondo de color
+                doc.setFillColor(...primaryColor);
+                doc.rect(columnX + columnMargin, currentY, noteWidth, 10, 'F');
 
-            // Línea decorativa
-            doc.setLineWidth(0.2);
-            doc.setDrawColor(200, 200, 200);
-            doc.line(columnX + columnMargin + 3, currentY, columnX + noteWidth - columnMargin - 3, currentY);
-            currentY += 3;
-
-            // Contenido principal
-            if (cleanContent) {
-                doc.setFontSize(8);
-                doc.setFont('helvetica', 'normal');
-                doc.setTextColor(51, 65, 85);
-                const contentLines = doc.splitTextToSize(cleanContent, noteWidth - 6);
-                doc.text(contentLines, columnX + columnMargin + 3, currentY);
-                currentY += contentLines.length * 4 + 3;
-            }
-
-            // Metadata adicional
-            if (metadata && (metadata.weather || metadata.materials || metadata.personnel)) {
-                doc.setFontSize(7);
+                doc.setFontSize(9);
                 doc.setFont('helvetica', 'bold');
-                doc.setTextColor(...primaryColor);
-                doc.text("INFO ADICIONAL:", columnX + columnMargin + 3, currentY);
-                currentY += 4;
-                
+                doc.setTextColor(255, 255, 255);
+                doc.text(`FOLIO #${log.note_number || 'N/A'}`, columnX + columnMargin + 3, currentY + 6);
+
                 doc.setFontSize(7);
                 doc.setFont('helvetica', 'normal');
-                doc.setTextColor(51, 65, 85);
-                
-                if (metadata.weather) {
-                    doc.text(`• Clima: ${metadata.weather}`, columnX + columnMargin + 5, currentY);
-                    currentY += 4;
-                }
-                if (metadata.materials) {
-                    doc.text(`• Materiales: ${metadata.materials}`, columnX + columnMargin + 5, currentY);
-                    currentY += 4;
-                }
-                if (metadata.personnel) {
-                    doc.text(`• Personal: ${metadata.personnel}`, columnX + columnMargin + 5, currentY);
-                    currentY += 4;
-                }
-                currentY += 2;
-            }
+                const classification = (log.classification || 'Informe').toUpperCase();
+                doc.text(classification, columnX + columnMargin + 35, currentY + 6);
 
-            // Observaciones
-            if (metadata && metadata.observations) {
-                doc.setFontSize(7);
+                currentY += 12;
+
+                // Asunto
+                doc.setFontSize(10);
                 doc.setFont('helvetica', 'bold');
-                doc.setTextColor(139, 92, 246);
-                doc.text("OBSERVACIONES:", columnX + columnMargin + 3, currentY);
+                doc.setTextColor(...darkGray);
+                const subjectLines = doc.splitTextToSize(log.subject || 'Sin asunto', noteWidth - 6);
+                doc.text(subjectLines, columnX + columnMargin + 3, currentY);
+                currentY += subjectLines.length * 5 + 3;
+
+                // Línea decorativa
+                doc.setLineWidth(0.2);
+                doc.setDrawColor(200, 200, 200);
+                doc.line(columnX + columnMargin + 3, currentY, columnX + noteWidth - columnMargin - 3, currentY);
+                currentY += 3;
+
+                // Contenido principal
+                if (cleanContent) {
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(51, 65, 85);
+                    const contentLines = doc.splitTextToSize(cleanContent, noteWidth - 6);
+                    doc.text(contentLines, columnX + columnMargin + 3, currentY);
+                    currentY += contentLines.length * 4 + 3;
+                }
+
+                // Metadata adicional
+                if (metadata && (metadata.weather || metadata.materials || metadata.personnel)) {
+                    doc.setFontSize(7);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(...primaryColor);
+                    doc.text("INFO ADICIONAL:", columnX + columnMargin + 3, currentY);
+                    currentY += 4;
+
+                    doc.setFontSize(7);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(51, 65, 85);
+
+                    if (metadata.weather) {
+                        doc.text(`• Clima: ${metadata.weather}`, columnX + columnMargin + 5, currentY);
+                        currentY += 4;
+                    }
+                    if (metadata.materials) {
+                        doc.text(`• Materiales: ${metadata.materials}`, columnX + columnMargin + 5, currentY);
+                        currentY += 4;
+                    }
+                    if (metadata.personnel) {
+                        doc.text(`• Personal: ${metadata.personnel}`, columnX + columnMargin + 5, currentY);
+                        currentY += 4;
+                    }
+                    currentY += 2;
+                }
+
+                // Observaciones
+                if (metadata && metadata.observations) {
+                    doc.setFontSize(7);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(139, 92, 246);
+                    doc.text("OBSERVACIONES:", columnX + columnMargin + 3, currentY);
+                    currentY += 4;
+
+                    doc.setFontSize(7);
+                    doc.setFont('helvetica', 'italic');
+                    doc.setTextColor(71, 85, 105);
+                    const obsLines = doc.splitTextToSize(metadata.observations, noteWidth - 6);
+                    doc.text(obsLines, columnX + columnMargin + 5, currentY);
+                    currentY += obsLines.length * 4 + 3;
+                }
+
+                // Footer de la nota con badges
+                doc.setLineWidth(0.2);
+                doc.setDrawColor(220, 220, 220);
+                doc.line(columnX + columnMargin + 3, currentY, columnX + noteWidth - columnMargin - 3, currentY);
                 currentY += 4;
-                
-                doc.setFontSize(7);
-                doc.setFont('helvetica', 'italic');
-                doc.setTextColor(71, 85, 105);
-                const obsLines = doc.splitTextToSize(metadata.observations, noteWidth - 6);
-                doc.text(obsLines, columnX + columnMargin + 5, currentY);
-                currentY += obsLines.length * 4 + 3;
-            }
 
-            // Footer de la nota con badges
-            doc.setLineWidth(0.2);
-            doc.setDrawColor(220, 220, 220);
-            doc.line(columnX + columnMargin + 3, currentY, columnX + noteWidth - columnMargin - 3, currentY);
-            currentY += 4;
+                // Badges de información (más pequeños para caber)
+                const badgeY = currentY;
+                let badgeX = columnX + columnMargin + 3;
 
-            // Badges de información (más pequeños para caber)
-            const badgeY = currentY;
-            let badgeX = columnX + columnMargin + 3;
-            
-            // Badge de avance
-            doc.setFillColor(...primaryColor);
-            doc.rect(badgeX, badgeY, 22, 6, 'F');
-            doc.setFontSize(6);
-            doc.setFont('helvetica', 'bold');
-            doc.setTextColor(255, 255, 255);
-            doc.text(`${log.progress_percentage || 0}%`, badgeX + 1, badgeY + 4.5);
-            badgeX += 24;
+                // Badge de avance
+                doc.setFillColor(...primaryColor);
+                doc.rect(badgeX, badgeY, 22, 6, 'F');
+                doc.setFontSize(6);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(255, 255, 255);
+                doc.text(`${log.progress_percentage || 0}%`, badgeX + 1, badgeY + 4.5);
+                badgeX += 24;
 
-            // Badge de autor
-            doc.setFillColor(139, 92, 246);
-            doc.rect(badgeX, badgeY, 25, 6, 'F');
-            doc.text(log.author_role || 'N/A', badgeX + 1, badgeY + 4.5);
-            badgeX += 27;
+                // Badge de autor
+                doc.setFillColor(139, 92, 246);
+                doc.rect(badgeX, badgeY, 25, 6, 'F');
+                doc.text(log.author_role || 'N/A', badgeX + 1, badgeY + 4.5);
+                badgeX += 27;
 
-            // Badge de estatus
-            const statusColor = log.status === 'Cerrada' ? [34, 197, 94] : [251, 191, 36];
-            doc.setFillColor(...statusColor);
-            doc.rect(badgeX, badgeY, 20, 6, 'F');
-            doc.text(log.status || 'Abierta', badgeX + 1, badgeY + 4.5);
+                // Badge de estatus
+                const statusColor = log.status === 'Cerrada' ? [34, 197, 94] : [251, 191, 36];
+                doc.setFillColor(...statusColor);
+                doc.rect(badgeX, badgeY, 20, 6, 'F');
+                doc.text(log.status || 'Abierta', badgeX + 1, badgeY + 4.5);
 
-            currentY += 9;
+                currentY += 9;
 
-            // Dibujar borde de la tarjeta completa
-            const noteCardHeight = currentY - noteStartY;
-            doc.setFillColor(255, 255, 255);
-            doc.setDrawColor(...secondaryColor);
-            doc.setLineWidth(0.5);
-            doc.rect(columnX + columnMargin, noteStartY, noteWidth, noteCardHeight, 'FD');
+                // Dibujar borde de la tarjeta completa
+                const noteCardHeight = currentY - noteStartY;
+                doc.setFillColor(255, 255, 255);
+                doc.setDrawColor(...secondaryColor);
+                doc.setLineWidth(0.5);
+                doc.rect(columnX + columnMargin, noteStartY, noteWidth, noteCardHeight, 'FD');
 
-            // Actualizar posición Y de la columna correspondiente
-            if (useLeftColumn) {
-                leftY = currentY + 5;
-                currentColumn = 1; // Cambiar a columna derecha para la próxima nota
-            } else {
-                rightY = currentY + 5;
-                currentColumn = 0; // Cambiar a columna izquierda para la próxima nota
-            }
-            
-            logProcessed = true; // Marcar como procesado
+                // Actualizar posición Y de la columna correspondiente
+                if (useLeftColumn) {
+                    leftY = currentY + 5;
+                    currentColumn = 1; // Cambiar a columna derecha para la próxima nota
+                } else {
+                    rightY = currentY + 5;
+                    currentColumn = 0; // Cambiar a columna izquierda para la próxima nota
+                }
+
+                logProcessed = true; // Marcar como procesado
             }
         }
 
@@ -1243,17 +1369,17 @@ export class PDFReportService {
         // Header elegante tipo libro
         doc.setFillColor(240, 240, 240);
         doc.rect(0, 0, pageWidth, 40, 'F');
-        
+
         doc.setFontSize(18);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(0, 0, 0);
         doc.text("DIARIO DE OBRA", pageWidth / 2, 18, { align: 'center' });
-        
+
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(100, 100, 100);
         doc.text(projectInfo.project || projectInfo.name || 'Proyecto', pageWidth / 2, 28, { align: 'center' });
-        
+
         doc.setFontSize(8);
         doc.text(`Generado el ${new Date(reportDate).toLocaleDateString('es-MX')}`, pageWidth / 2, 35, { align: 'center' });
 
@@ -1269,7 +1395,7 @@ export class PDFReportService {
         // Procesar cada entrada del diario
         for (let i = 0; i < sortedEntries.length; i++) {
             const entry = sortedEntries[i];
-            
+
             // Verificar si necesitamos nueva página
             if (yPos > pageHeight - 80) {
                 doc.addPage();
@@ -1292,14 +1418,14 @@ export class PDFReportService {
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(59, 130, 246); // Azul
             const entryDate = new Date(entry.log_date || entry.created_at);
-            const dateStr = entryDate.toLocaleDateString('es-MX', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
+            const dateStr = entryDate.toLocaleDateString('es-MX', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
             });
             doc.text(`ENTRADA #${entry.note_number || i + 1} - ${dateStr}`, margin, yPos);
-            
+
             yPos += 8;
 
             // Línea decorativa
@@ -1323,12 +1449,12 @@ export class PDFReportService {
             doc.setFontSize(7);
             doc.setFont('helvetica', 'normal');
             doc.setTextColor(100, 100, 100);
-            
+
             const authorInfo = [];
             if (entry.authorName) authorInfo.push(entry.authorName);
             if (entry.authorRole) authorInfo.push(entry.authorRole);
             if (entry.authorSignature) authorInfo.push(`Firma: ${entry.authorSignature}`);
-            
+
             if (authorInfo.length > 0) {
                 doc.text(authorInfo.join(' • '), margin, yPos);
                 yPos += 6;

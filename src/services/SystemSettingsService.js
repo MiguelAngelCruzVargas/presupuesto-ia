@@ -6,6 +6,7 @@ export class SystemSettingsService {
         this.cache = null;
         this.lastFetch = 0;
         this.CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+        this.LOCAL_CACHE_KEY = 'presugenius_system_settings_cache';
 
         // Valores por defecto
         this.defaults = {
@@ -63,6 +64,51 @@ export class SystemSettingsService {
         };
     }
 
+    getLocalStorage() {
+        if (typeof globalThis === 'undefined' || !globalThis.localStorage) {
+            return null;
+        }
+
+        return globalThis.localStorage;
+    }
+
+    getLocalCache() {
+        try {
+            const storage = this.getLocalStorage();
+            if (!storage) return null;
+
+            const raw = storage.getItem(this.LOCAL_CACHE_KEY);
+            if (!raw) return null;
+
+            const parsed = JSON.parse(raw);
+            return parsed?.settings || null;
+        } catch (error) {
+            console.warn('Error reading local system settings cache:', error);
+            return null;
+        }
+    }
+
+    saveLocalCache(settings) {
+        try {
+            const storage = this.getLocalStorage();
+            if (!storage) return;
+
+            storage.setItem(this.LOCAL_CACHE_KEY, JSON.stringify({
+                savedAt: new Date().toISOString(),
+                settings
+            }));
+        } catch (error) {
+            console.warn('Error saving local system settings cache:', error);
+        }
+    }
+
+    getCachedOrDefaultSettings() {
+        return {
+            ...this.defaults,
+            ...(this.getLocalCache() || {})
+        };
+    }
+
     /**
      * Obtener todas las configuraciones
      */
@@ -105,10 +151,14 @@ export class SystemSettingsService {
 
             this.cache = settings;
             this.lastFetch = now;
+            this.saveLocalCache(settings);
             return settings;
         } catch (error) {
             console.error('Error fetching system settings:', error);
-            return this.defaults;
+            const fallbackSettings = this.getCachedOrDefaultSettings();
+            this.cache = fallbackSettings;
+            this.lastFetch = Date.now();
+            return fallbackSettings;
         }
     }
 
@@ -147,12 +197,18 @@ export class SystemSettingsService {
             // Actualizar caché local (con el valor plano para la app)
             if (this.cache) {
                 this.cache[key] = value;
+                this.saveLocalCache(this.cache);
             }
 
             return true;
         } catch (error) {
             console.error(`Error saving setting ${key}:`, error);
-            throw error;
+            const fallbackSettings = this.getCachedOrDefaultSettings();
+            fallbackSettings[key] = value;
+            this.cache = fallbackSettings;
+            this.lastFetch = Date.now();
+            this.saveLocalCache(fallbackSettings);
+            return true;
         }
     }
 

@@ -41,6 +41,28 @@ const PROVIDERS = {
     DEEPSEEK: 'deepseek'
 };
 
+const isUsableKey = (key) => {
+    if (!key || typeof key !== 'string') return false;
+    const normalized = key.trim();
+    if (!normalized) return false;
+    if (normalized.includes('xxxxxxxx')) return false;
+    if (normalized.includes('tu_api_key')) return false;
+    return true;
+};
+
+const maskKey = (key) => {
+    if (!key || key.length < 8) return '***';
+    return `...${key.slice(-4)}`;
+};
+
+const summarizeProviderKeys = (providerKeys) => ({
+    free: (providerKeys?.free || []).map(maskKey),
+    pro: (providerKeys?.pro || []).map(maskKey),
+    byFunction: Object.fromEntries(
+        Object.entries(providerKeys?.byFunction || {}).map(([fn, key]) => [fn, maskKey(key)])
+    )
+});
+
 class ApiKeyManager {
     constructor() {
         this.keys = {
@@ -54,7 +76,12 @@ class ApiKeyManager {
             deepseek: { free: 0, pro: 0 }
         };
         this.keyStats = new Map();
-        console.log('DEBUG: ApiKeyManager constructor - Estado inicial de keys:', JSON.stringify(this.keys));
+        this.blockedKeys = new Set();
+        console.log('DEBUG: ApiKeyManager constructor - Estado inicial de keys:', JSON.stringify({
+            gemini: summarizeProviderKeys(this.keys.gemini),
+            groq: summarizeProviderKeys(this.keys.groq),
+            deepseek: summarizeProviderKeys(this.keys.deepseek)
+        }));
         this.initializeKeys();
         this.loadFromSettings();
     }
@@ -67,7 +94,11 @@ class ApiKeyManager {
             const settings = await systemSettingsService.getAllSettings();
             const ignoreEnvKeys = settings.ignore_env_keys;
             console.log('DEBUG: loadFromSettings - ignoreEnvKeys:', ignoreEnvKeys);
-            console.log('DEBUG: loadFromSettings - settings.api_keys:', JSON.stringify(settings.api_keys));
+            console.log('DEBUG: loadFromSettings - settings.api_keys:', JSON.stringify({
+                gemini: summarizeProviderKeys(settings.api_keys?.gemini),
+                groq: summarizeProviderKeys(settings.api_keys?.groq),
+                deepseek: summarizeProviderKeys(settings.api_keys?.deepseek)
+            }));
 
             for (const provider of Object.keys(PROVIDERS)) {
                 const providerKey = PROVIDERS[provider];
@@ -80,7 +111,7 @@ class ApiKeyManager {
                     }
                     if (dynamicKeys.free && Array.isArray(dynamicKeys.free)) {
                         dynamicKeys.free.forEach(key => {
-                            if (key && !this.keys[providerKey].free.includes(key)) {
+                            if (isUsableKey(key) && !this.keys[providerKey].free.includes(key)) {
                                 this.keys[providerKey].free.push(key);
                                 console.log(`DEBUG: loadFromSettings - Añadida key FREE dinámica para ${providerKey}`);
                             }
@@ -88,7 +119,7 @@ class ApiKeyManager {
                     }
                     if (dynamicKeys.pro && Array.isArray(dynamicKeys.pro)) {
                         dynamicKeys.pro.forEach(key => {
-                            if (key && !this.keys[providerKey].pro.includes(key)) {
+                            if (isUsableKey(key) && !this.keys[providerKey].pro.includes(key)) {
                                 this.keys[providerKey].pro.push(key);
                                 console.log(`DEBUG: loadFromSettings - Añadida key PRO dinámica para ${providerKey}`);
                             }
@@ -97,7 +128,11 @@ class ApiKeyManager {
                 }
             }
             console.log('✅ ApiKeyManager: Keys dinámicas cargadas para todos los proveedores');
-            console.log('DEBUG: loadFromSettings - Estado final de keys:', JSON.stringify(this.keys));
+            console.log('DEBUG: loadFromSettings - Estado final de keys:', JSON.stringify({
+                gemini: summarizeProviderKeys(this.keys.gemini),
+                groq: summarizeProviderKeys(this.keys.groq),
+                deepseek: summarizeProviderKeys(this.keys.deepseek)
+            }));
         } catch (error) {
             console.error('Error loading dynamic keys:', error);
         }
@@ -112,27 +147,34 @@ class ApiKeyManager {
             console.log(`DEBUG: Cargando keys para ${providerKey} con prefijo ${prefix}`);
             for (let i = 1; i <= 3; i++) { // Soporte hasta 3 keys por tier
                 const freeKey = getEnvVar(`${prefix}_API_KEY_FREE_${i}`);
-                if (freeKey) {
+                if (isUsableKey(freeKey)) {
                     this.keys[providerKey].free.push(freeKey);
                     console.log(`DEBUG: ${prefix}_API_KEY_FREE_${i} cargada.`);
                 }
                 const proKey = getEnvVar(`${prefix}_API_KEY_PRO_${i}`);
-                if (proKey) {
+                if (isUsableKey(proKey)) {
                     this.keys[providerKey].pro.push(proKey);
                     console.log(`DEBUG: ${prefix}_API_KEY_PRO_${i} cargada.`);
                 }
             }
             // Fallback para key genérica si no hay específicas
-            if (this.keys[providerKey].free.length === 0 && getEnvVar(`${prefix}_API_KEY`)) {
-                this.keys[providerKey].free.push(getEnvVar(`${prefix}_API_KEY`));
+            const genericKey = getEnvVar(`${prefix}_API_KEY`);
+            if (this.keys[providerKey].free.length === 0 && isUsableKey(genericKey)) {
+                this.keys[providerKey].free.push(genericKey);
                 console.log(`DEBUG: ${prefix}_API_KEY (fallback) cargada.`);
             }
             // Keys por función
-            if (getEnvVar(`${prefix}_API_KEY_BUDGET`)) this.keys[providerKey].byFunction[FUNCTION_TYPE.BUDGET] = getEnvVar(`${prefix}_API_KEY_BUDGET`);
-            if (getEnvVar(`${prefix}_API_KEY_SCHEDULE`)) this.keys[providerKey].byFunction[FUNCTION_TYPE.SCHEDULE] = getEnvVar(`${prefix}_API_KEY_SCHEDULE`);
-            if (getEnvVar(`${prefix}_API_KEY_PRICES`)) this.keys[providerKey].byFunction[FUNCTION_TYPE.PRICES] = getEnvVar(`${prefix}_API_KEY_PRICES`);
-            if (getEnvVar(`${prefix}_API_KEY_PRICE_SEARCH`)) this.keys[providerKey].byFunction[FUNCTION_TYPE.PRICE_SEARCH] = getEnvVar(`${prefix}_API_KEY_PRICE_SEARCH`);
-            if (getEnvVar(`${prefix}_API_KEY_GENERAL`)) this.keys[providerKey].byFunction[FUNCTION_TYPE.GENERAL] = getEnvVar(`${prefix}_API_KEY_GENERAL`);
+            const budgetKey = getEnvVar(`${prefix}_API_KEY_BUDGET`);
+            const scheduleKey = getEnvVar(`${prefix}_API_KEY_SCHEDULE`);
+            const pricesKey = getEnvVar(`${prefix}_API_KEY_PRICES`);
+            const priceSearchKey = getEnvVar(`${prefix}_API_KEY_PRICE_SEARCH`);
+            const generalKey = getEnvVar(`${prefix}_API_KEY_GENERAL`);
+
+            if (isUsableKey(budgetKey)) this.keys[providerKey].byFunction[FUNCTION_TYPE.BUDGET] = budgetKey;
+            if (isUsableKey(scheduleKey)) this.keys[providerKey].byFunction[FUNCTION_TYPE.SCHEDULE] = scheduleKey;
+            if (isUsableKey(pricesKey)) this.keys[providerKey].byFunction[FUNCTION_TYPE.PRICES] = pricesKey;
+            if (isUsableKey(priceSearchKey)) this.keys[providerKey].byFunction[FUNCTION_TYPE.PRICE_SEARCH] = priceSearchKey;
+            if (isUsableKey(generalKey)) this.keys[providerKey].byFunction[FUNCTION_TYPE.GENERAL] = generalKey;
         };
 
         loadKeys(PROVIDERS.GEMINI, 'GEMINI');
@@ -201,6 +243,37 @@ class ApiKeyManager {
     }
 
     /**
+     * Obtiene una key SOLO del proveedor solicitado, sin fallback cruzado.
+     */
+    getApiKeyForProvider(provider, userTier = USER_TIER.FREE, functionType = FUNCTION_TYPE.GENERAL) {
+        if (!this.keys[provider]) return null;
+
+        if (functionType && this.keys[provider].byFunction && this.keys[provider].byFunction[functionType]) {
+            const functionKey = this.keys[provider].byFunction[functionType];
+            if (!this.isKeyBlocked(functionKey)) {
+                this.recordUsage(functionKey);
+                return functionKey;
+            }
+        }
+
+        const primaryPool = userTier === USER_TIER.PRO || userTier === USER_TIER.ENTERPRISE
+            ? this.keys[provider].pro
+            : this.keys[provider].free;
+
+        if (primaryPool.length > 0) {
+            return this.selectKeyFromPool(primaryPool, userTier, provider);
+        }
+
+        const fallbackPool = userTier === USER_TIER.FREE ? this.keys[provider].pro : this.keys[provider].free;
+        if (fallbackPool.length > 0) {
+            console.warn(`⚠️ Usando pool alternativo para tier ${userTier} en ${provider}`);
+            return this.selectKeyFromPool(fallbackPool, userTier, provider);
+        }
+
+        return null;
+    }
+
+    /**
      * Selecciona una key del pool con balanceo de carga (round-robin)
      * @param {Array<string>} pool - Pool de keys
      * @param {string} tier - Tier del usuario
@@ -209,8 +282,11 @@ class ApiKeyManager {
     selectKeyFromPool(pool, tier, provider) {
         if (pool.length === 0) return null;
         const indexKey = tier === USER_TIER.PRO || tier === USER_TIER.ENTERPRISE ? 'pro' : 'free';
+        const availablePool = pool.filter(key => !this.isKeyBlocked(key));
+        if (availablePool.length === 0) return null;
+
         const currentIndex = this.currentIndex[provider][indexKey] || 0;
-        const selectedKey = pool[currentIndex % pool.length];
+        const selectedKey = availablePool[currentIndex % availablePool.length];
         this.currentIndex[provider][indexKey] = (currentIndex + 1) % pool.length;
         this.recordUsage(selectedKey);
         return selectedKey;
@@ -245,14 +321,23 @@ class ApiKeyManager {
         }
     }
 
+    blockKey(key, reason = 'unknown') {
+        if (!key) return;
+        this.blockedKeys.add(key);
+        console.warn(`🚫 API key bloqueada temporalmente: ${this.maskKey(key)} (${reason})`);
+    }
+
+    isKeyBlocked(key) {
+        return this.blockedKeys.has(key);
+    }
+
     /**
      * Enmascara una API key para logs (muestra solo últimos 4 caracteres)
      * @param {string} key - API key completa
      * @returns {string} - Key enmascarada
      */
     maskKey(key) {
-        if (!key || key.length < 8) return '***';
-        return `...${key.slice(-4)}`;
+        return maskKey(key);
     }
 
     /**
@@ -270,17 +355,70 @@ class ApiKeyManager {
             pro: 0
         };
 
-        for (const provider of Object.keys(PROVIDERS)) {
+        for (const provider of Object.values(PROVIDERS)) {
             if (this.keys[provider]) {
                 totalKeys.free += this.keys[provider].free.length;
                 totalKeys.pro += this.keys[provider].pro.length;
             }
         }
 
+        const providerStats = {};
+        for (const provider of Object.values(PROVIDERS)) {
+            const providerKeys = this.keys[provider] || { free: [], pro: [], byFunction: {} };
+            const providerAllKeys = [
+                ...(providerKeys.free || []),
+                ...(providerKeys.pro || []),
+                ...Object.values(providerKeys.byFunction || {})
+            ].filter(Boolean);
+
+            let requests = 0;
+            let errors = 0;
+            let lastUsed = null;
+            let blocked = 0;
+
+            providerAllKeys.forEach((rawKey) => {
+                const masked = this.maskKey(rawKey);
+                const keyUsage = this.keyStats.get(masked);
+                if (keyUsage) {
+                    requests += keyUsage.count || 0;
+                    errors += keyUsage.errors || 0;
+
+                    if (keyUsage.lastUsed) {
+                        const usedAt = new Date(keyUsage.lastUsed);
+                        if (!lastUsed || usedAt > new Date(lastUsed)) {
+                            lastUsed = usedAt.toISOString();
+                        }
+                    }
+                }
+
+                if (this.isKeyBlocked(rawKey)) {
+                    blocked++;
+                }
+            });
+
+            providerStats[provider] = {
+                active: providerAllKeys.length > 0,
+                configured: {
+                    free: providerKeys.free?.length || 0,
+                    pro: providerKeys.pro?.length || 0,
+                    byFunction: Object.keys(providerKeys.byFunction || {}).length
+                },
+                blocked,
+                requests,
+                errors,
+                lastUsed
+            };
+        }
+
         return {
             totalKeys: totalKeys,
-            usage: stats
+            usage: stats,
+            providers: providerStats
         };
+    }
+
+    getConfiguredProviders(userTier = USER_TIER.FREE) {
+        return Object.values(PROVIDERS).filter(provider => this.hasAvailableKeys(provider, userTier));
     }
 
     /**

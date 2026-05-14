@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, FileText, Book, History, Hammer, LogOut, User, Layers, FileImage, Key, Moon, Sun, BarChart3, ChevronLeft, ChevronRight, Shield, DollarSign, FileEdit } from 'lucide-react';
+import { LayoutDashboard, FileText, Book, History, Hammer, LogOut, User, Layers, FileImage, Key, Moon, Sun, BarChart3, ChevronLeft, ChevronRight, Shield, DollarSign, FileEdit, Camera } from 'lucide-react';
+
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useSidebar } from '../../context/SidebarContext';
@@ -30,9 +31,11 @@ const Sidebar = ({ mobileOpen, setMobileOpen }) => {
     const navItems = [
         { path: '/dashboard', icon: LayoutDashboard, label: 'Tablero' },
         { path: '/editor', icon: FileText, label: 'Presupuesto' },
+        { path: '/reports', icon: Camera, label: 'Reportes' },
         { path: '/catalog', icon: Book, label: 'Catálogo' },
         { path: '/templates', icon: Layers, label: 'Plantillas' },
         { path: '/usage', icon: BarChart3, label: 'Mi Uso' },
+
         {
             path: '/pdf-templates',
             icon: FileImage,
@@ -52,8 +55,8 @@ const Sidebar = ({ mobileOpen, setMobileOpen }) => {
     return (
         <aside className={`
             fixed h-full z-40 transition-all duration-300 shadow-xl bg-slate-900 text-white flex flex-col
-            ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0
-            w-64 ${isCollapsed ? 'md:w-20' : 'md:w-64'}
+            ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0
+            w-64 ${isCollapsed ? 'lg:w-20' : 'lg:w-64'}
         `}>
             <div className={`p-6 flex items-center ${!isExpanded ? 'justify-center' : 'gap-3'} border-b border-slate-800 relative`}>
                 <div className="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/50">
@@ -68,7 +71,7 @@ const Sidebar = ({ mobileOpen, setMobileOpen }) => {
                 {/* Botón para colapsar/expandir - Solo visible en Desktop */}
                 <button
                     onClick={toggleSidebar}
-                    className="hidden md:block absolute -right-3 top-1/2 -translate-y-1/2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-full p-1.5 transition-all z-50 shadow-lg"
+                    className="hidden lg:block absolute -right-3 top-1/2 -translate-y-1/2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-full p-1.5 transition-all z-50 shadow-lg"
                     title={isCollapsed ? 'Expandir menú' : 'Colapsar menú'}
                 >
                     {isCollapsed ? (

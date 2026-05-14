@@ -274,7 +274,7 @@ const ScheduleModal = ({ isOpen, onClose, scheduleData, isGenerating, onSaveToBi
                                     <div className="text-xs text-red-600 space-y-1">
                                         <p className="font-bold">Posibles soluciones:</p>
                                         <ul className="list-disc list-inside space-y-1 ml-2">
-                                            <li>Verifica que el servidor de IA esté corriendo: <code className="bg-red-100 px-1 rounded">npm run gemini-proxy</code></li>
+                                            <li>Verifica que el servidor de IA esté corriendo: <code className="bg-red-100 px-1 rounded">npm run ai-proxy</code></li>
                                             <li>Asegúrate de que todas las partidas tengan cantidad mayor a 0</li>
                                             <li>Revisa la consola del navegador (F12) para más detalles</li>
                                             <li>Intenta generar el cronograma nuevamente</li>

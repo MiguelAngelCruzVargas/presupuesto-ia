@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Compress, Loader2, CheckCircle, AlertCircle, Zap } from 'lucide-react';
+import { Compress, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useSubscription } from '../../context/SubscriptionContext';
 import { ImageUploadService } from '../../services/ImageUploadService';
 
@@ -42,9 +42,9 @@ const ImageCompressor = ({ file, onCompressed, onError, showDetails = false }) =
                 // Usuarios Pro: compresión avanzada
                 result = await ImageUploadService.compressImageAdvanced(
                     file,
-                    5, // 5MB objetivo
-                    1920, // Max width
-                    0.6 // Min quality
+                    2,
+                    2560,
+                    0.72
                 );
 
                 setCompressionResult({
@@ -65,27 +65,28 @@ const ImageCompressor = ({ file, onCompressed, onError, showDetails = false }) =
             } else {
                 // Usuarios Free: compresión básica
                 if (file.size > ImageUploadService.MAX_FILE_SIZE) {
-                    const errMsg = `Tu imagen es demasiado grande (${(file.size / 1024 / 1024).toFixed(2)}MB). El plan Gratis permite máximo 5MB. Actualiza a Pro para compresión automática de imágenes grandes.`;
+                    const errMsg = `Tu imagen es demasiado grande (${(file.size / 1024 / 1024).toFixed(2)}MB). El sistema permite hasta ${(ImageUploadService.MAX_FILE_SIZE / 1024 / 1024).toFixed(0)}MB de entrada para intentar comprimirla.`;
                     setError(errMsg);
                     if (onError) onError(errMsg);
                     return;
                 }
 
                 // Compresión básica para usuarios Free
-                result = await ImageUploadService.compressImage(file, 1920, 0.8);
+                result = await ImageUploadService.prepareImageForApp(file);
                 
                 setCompressionResult({
-                    originalSize: file.size,
-                    compressedSize: result.size,
-                    reduction: ((file.size - result.size) / file.size) * 100,
-                    file: result
+                    originalSize: result.originalSize,
+                    compressedSize: result.compressedSize,
+                    reduction: result.reduction,
+                    quality: result.quality,
+                    file: result.file
                 });
 
                 if (onCompressed) {
-                    onCompressed(result, {
-                        originalSize: file.size,
-                        compressedSize: result.size,
-                        reduction: ((file.size - result.size) / file.size) * 100
+                    onCompressed(result.file, {
+                        originalSize: result.originalSize,
+                        compressedSize: result.compressedSize,
+                        reduction: result.reduction
                     });
                 }
             }
@@ -99,9 +100,9 @@ const ImageCompressor = ({ file, onCompressed, onError, showDetails = false }) =
         }
     };
 
-    // Auto-comprimir si es usuario Pro y el archivo es mayor a 5MB
+    // Auto-comprimir si es usuario Pro y el archivo es mayor al objetivo recomendado
     React.useEffect(() => {
-        if (file && isPro && file.size > ImageUploadService.MAX_FILE_SIZE) {
+        if (file && isPro && file.size > ImageUploadService.getTargetSizeBytes()) {
             handleCompress();
         }
     }, [file, isPro]);
@@ -117,7 +118,7 @@ const ImageCompressor = ({ file, onCompressed, onError, showDetails = false }) =
     if (!file) return null;
 
     const fileSizeMB = file.size / 1024 / 1024;
-    const exceedsLimit = file.size > ImageUploadService.MAX_FILE_SIZE;
+    const exceedsRecommendedSize = file.size > ImageUploadService.getTargetSizeBytes();
 
     return (
         <div className="w-full">
@@ -128,7 +129,7 @@ const ImageCompressor = ({ file, onCompressed, onError, showDetails = false }) =
                         {file.name}
                     </span>
                     <span className={`text-sm font-bold ${
-                        exceedsLimit 
+                        exceedsRecommendedSize 
                             ? 'text-red-600 dark:text-red-400' 
                             : 'text-slate-600 dark:text-slate-400'
                     }`}>
@@ -136,14 +137,14 @@ const ImageCompressor = ({ file, onCompressed, onError, showDetails = false }) =
                     </span>
                 </div>
                 
-                {exceedsLimit && (
+                {exceedsRecommendedSize && (
                     <div className="flex items-start gap-2 mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded">
                         <AlertCircle className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" size={16} />
                         <div className="flex-1">
                             <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
                                 {isPro 
                                     ? 'La imagen será comprimida automáticamente'
-                                    : `La imagen excede el límite de 5MB. ${fileSizeMB.toFixed(2)}MB detectado.`
+                                    : `La imagen excede el tamaño recomendado de 2MB y será optimizada. ${fileSizeMB.toFixed(2)}MB detectado.`
                                 }
                             </p>
                         </div>
@@ -196,7 +197,7 @@ const ImageCompressor = ({ file, onCompressed, onError, showDetails = false }) =
             )}
 
             {/* Botón de compresión manual (si no es Pro o no se auto-comprimió) */}
-            {!isPro && exceedsLimit && !compressing && !compressionResult && (
+            {!isPro && file.size > ImageUploadService.getTargetSizeBytes() && !compressing && !compressionResult && (
                 <button
                     onClick={handleCompress}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center justify-center gap-2"

@@ -72,6 +72,78 @@ const RATE_LIMIT_CONFIG = {
     cleanupInterval: 60 * 1000
 };
 
+function getFunctionUsageSnapshot() {
+    const summary = {};
+
+    for (const [functionType, config] of Object.entries(RATE_LIMIT_CONFIG.byFunction)) {
+        summary[functionType] = {
+            functionType,
+            name: config.name,
+            dailyLimit: config.dailyLimit,
+            cooldownMs: config.cooldownMs,
+            totalRequests: 0,
+            activeIps: 0
+        };
+    }
+
+    for (const [, data] of rateLimitMap.entries()) {
+        for (const [functionType, usage] of Object.entries(data.functionUsage || {})) {
+            if (!summary[functionType]) continue;
+            summary[functionType].totalRequests += usage.count || 0;
+            if ((usage.count || 0) > 0) {
+                summary[functionType].activeIps += 1;
+            }
+        }
+    }
+
+    return Object.values(summary);
+}
+
+function getProxyUsageSummary() {
+    const apiStats = apiKeyManager.getStats();
+    const functionUsage = getFunctionUsageSnapshot();
+    const totalDailyRequests = Array.from(rateLimitMap.values()).reduce(
+        (sum, data) => sum + (data.dailyCount || 0),
+        0
+    );
+
+    return {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        providers: apiStats.providers,
+        keys: apiStats.totalKeys,
+        rateLimits: RATE_LIMIT_CONFIG,
+        runtime: {
+            trackedIps: rateLimitMap.size,
+            totalDailyRequests
+        },
+        functionUsage
+    };
+}
+
+function releaseRateLimitSlot(req) {
+    const context = req.rateLimitContext;
+    if (!context || context.released) return;
+
+    const { ipData, functionType, requestTimestamp } = context;
+    if (!ipData || !functionType || !ipData.functionUsage?.[functionType]) return;
+
+    ipData.dailyCount = Math.max(0, (ipData.dailyCount || 0) - 1);
+    ipData.requests = (ipData.requests || []).filter(ts => ts !== requestTimestamp);
+
+    const funcUsage = ipData.functionUsage[functionType];
+    funcUsage.count = Math.max(0, (funcUsage.count || 0) - 1);
+
+    if (funcUsage.lastRequest === requestTimestamp) {
+        const remainingForFunction = (ipData.requests || []).filter(ts => ts < requestTimestamp);
+        funcUsage.lastRequest = remainingForFunction.length > 0
+            ? remainingForFunction[remainingForFunction.length - 1]
+            : 0;
+    }
+
+    context.released = true;
+}
+
 // Limpiar entradas antiguas periódicamente
 setInterval(() => {
     const now = Date.now();
@@ -164,6 +236,12 @@ const rateLimiter = (req, res, next) => {
 
     funcUsage.count++;
     funcUsage.lastRequest = now;
+    req.rateLimitContext = {
+        ipData,
+        functionType,
+        requestTimestamp: now,
+        released: false
+    };
 
     // Headers informativos
     res.setHeader('X-RateLimit-Limit', config.dailyLimit);
@@ -246,12 +324,32 @@ const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = "llama-3.3-70b-versatile"; // Modelo de Groq actualizado a Llama 3.3 70B
 
+function getProviderLabel(provider) {
+    if (provider === PROVIDERS.GROQ) return 'Groq';
+    if (provider === PROVIDERS.GEMINI) return 'Gemini';
+    if (provider === PROVIDERS.DEEPSEEK) return 'DeepSeek';
+    return provider;
+}
+
+function getConfiguredPrimaryProviders(tier = USER_TIER.FREE) {
+    const providers = [];
+
+    if (apiKeyManager.hasAvailableKeys(PROVIDERS.GROQ, tier)) {
+        providers.push(PROVIDERS.GROQ);
+    }
+
+    if (apiKeyManager.hasAvailableKeys(PROVIDERS.GEMINI, tier) || AI_API_KEY_FALLBACK) {
+        providers.push(PROVIDERS.GEMINI);
+    }
+
+    return providers;
+}
+
 // Verificar que haya al menos una key disponible para Gemini o Groq
-if (
-    (!apiKeyManager.hasAvailableKeys(PROVIDERS.GEMINI, USER_TIER.FREE) && !AI_API_KEY_FALLBACK) &&
-    !apiKeyManager.hasAvailableKeys(PROVIDERS.GROQ, USER_TIER.FREE)
-) {
-    console.error('\n❌ ERROR: No hay API keys configuradas para Gemini o Groq.');
+const configuredPrimaryProviders = getConfiguredPrimaryProviders(USER_TIER.FREE);
+
+if (configuredPrimaryProviders.length === 0) {
+    console.error('\n❌ ERROR: No hay API keys configuradas para proveedores soportados.');
     console.error('\n📝 Pasos para solucionarlo:');
     console.error('1. Agrega al menos una de estas al archivo .env:');
     console.error('   - GEMINI_API_KEY_FREE_1=tu_api_key (o AI_API_KEY=tu_api_key como fallback)');
@@ -266,11 +364,105 @@ const stats = apiKeyManager.getStats();
 console.log(`\n✅ Sistema de API Keys configurado:`);
 console.log(`   - Keys FREE disponibles: ${stats.totalKeys.free}`);
 console.log(`   - Keys PRO disponibles: ${stats.totalKeys.pro}`);
+console.log(`   - Proveedores activos: ${configuredPrimaryProviders.map(getProviderLabel).join(', ')}`);
 if (AI_API_KEY_FALLBACK) {
     console.log(`   - Key genérica (fallback): Configurada`);
 }
 console.log(`✅ Modelos disponibles: Gemini (gemini-flash-latest), Groq (${GROQ_MODEL})`);
 console.log(`✅ Directorio de uploads: ${uploadDir}`);
+
+function buildAIRequestBody(provider, { prompt, systemInstruction }) {
+    if (provider === PROVIDERS.GROQ) {
+        return {
+            model: GROQ_MODEL,
+            messages: [
+                { role: "system", content: systemInstruction || "You are a helpful AI assistant." },
+                { role: "user", content: prompt }
+            ],
+            temperature: 0.2,
+            max_tokens: 8192,
+        };
+    }
+
+    const requestBody = {
+        contents: [{
+            parts: [{ text: prompt }]
+        }]
+    };
+
+    if (systemInstruction) {
+        requestBody.systemInstruction = {
+            parts: [{ text: systemInstruction }]
+        };
+    }
+
+    requestBody.generationConfig = {
+        temperature: 0.2,
+        topP: 0.9,
+        topK: 32,
+        maxOutputTokens: 8192,
+    };
+    requestBody.safetySettings = [
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+    ];
+
+    return requestBody;
+}
+
+function normalizeProviderErrorMessage(provider, rawMessage, status) {
+    const message = String(rawMessage || '').trim();
+    const lowerMessage = message.toLowerCase();
+    const providerLabel = provider === PROVIDERS.GROQ
+        ? 'Groq'
+        : provider === PROVIDERS.GEMINI
+            ? 'Gemini'
+            : provider;
+
+    if (
+        lowerMessage.includes('invalid api key') ||
+        lowerMessage.includes('api key not valid') ||
+        lowerMessage.includes('key not valid') ||
+        lowerMessage.includes('incorrect api key') ||
+        lowerMessage.includes('unauthorized') ||
+        lowerMessage.includes('authentication') ||
+        lowerMessage.includes('authenticated') ||
+        status === 401 ||
+        status === 403
+    ) {
+        return `La API key de ${providerLabel} es inválida, expiró o no tiene permisos. Revisa el archivo .env y reinicia el proxy de IA.`;
+    }
+
+    if (lowerMessage.includes('quota') || lowerMessage.includes('limit exceeded')) {
+        return `La API key de ${providerLabel} alcanzó su límite o cuota disponible.`;
+    }
+
+    if (lowerMessage.includes('model is overloaded') || lowerMessage.includes('overloaded')) {
+        return `El servicio de ${providerLabel} está sobrecargado en este momento.`;
+    }
+
+    if (lowerMessage.includes('resource') && lowerMessage.includes('exhausted')) {
+        return `El servicio de ${providerLabel} agotó sus recursos temporalmente.`;
+    }
+
+    return message;
+}
+
+function isAuthError(status, lowerMessage) {
+    return (
+        status === 401 ||
+        status === 403 ||
+        lowerMessage.includes('invalid api key') ||
+        lowerMessage.includes('api key not valid') ||
+        lowerMessage.includes('key not valid') ||
+        lowerMessage.includes('incorrect api key') ||
+        lowerMessage.includes('unauthorized') ||
+        lowerMessage.includes('authentication') ||
+        lowerMessage.includes('authenticated')
+    );
+}
 
 
 app.post('/api/ai', rateLimiter, async (req, res) => {
@@ -289,57 +481,27 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
         let requestBody;
         let maskedKey;
 
-        // PRIORIDAD: Intentar con Groq primero (Solicitud del usuario)
-        apiKey = apiKeyManager.getApiKey(PROVIDERS.GROQ, tier, funcType);
-        if (apiKey) {
-            providerUsed = PROVIDERS.GROQ;
-            endpointUsed = GROQ_ENDPOINT;
-            maskedKey = apiKeyManager.maskKey(apiKey);
-
-            requestBody = {
-                model: GROQ_MODEL,
-                messages: [
-                    { role: "system", content: systemInstruction || "You are a helpful AI assistant." },
-                    { role: "user", content: prompt }
-                ],
-                temperature: 0.2,
-                max_tokens: 8192,
-            };
-        } else {
-            // Si no hay Groq, intentar con Gemini
-            apiKey = apiKeyManager.getApiKey(PROVIDERS.GEMINI, tier, funcType);
-            if (apiKey) {
-                providerUsed = PROVIDERS.GEMINI;
-                endpointUsed = GEMINI_ENDPOINT;
-                maskedKey = apiKeyManager.maskKey(apiKey);
-
-                requestBody = {
-                    contents: [{
-                        parts: [{ text: prompt }]
-                    }]
-                };
-                if (systemInstruction) {
-                    requestBody.systemInstruction = {
-                        parts: [{ text: systemInstruction }]
-                    };
-                }
-                requestBody.generationConfig = {
-                    temperature: 0.2,
-                    topP: 0.9,
-                    topK: 32,
-                    maxOutputTokens: 8192,
-                };
-                requestBody.safetySettings = [
-                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
-                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
-                ];
-            } else {
-                return res.status(500).json({
-                    error: 'No hay API keys disponibles para la función general (Gemini o Groq). Contacta al administrador.'
-                });
+        const providerPriority = getConfiguredPrimaryProviders(tier);
+        for (const provider of providerPriority) {
+            apiKey = apiKeyManager.getApiKeyForProvider(provider, tier, funcType);
+            if (!apiKey && provider === PROVIDERS.GEMINI && AI_API_KEY_FALLBACK) {
+                apiKey = AI_API_KEY_FALLBACK;
             }
+
+            if (apiKey) {
+                providerUsed = provider;
+                endpointUsed = provider === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT;
+                maskedKey = apiKeyManager.maskKey(apiKey);
+                requestBody = buildAIRequestBody(provider, { prompt, systemInstruction });
+                break;
+            }
+        }
+
+        if (!apiKey) {
+            releaseRateLimitSlot(req);
+            return res.status(500).json({
+                error: `No hay API keys disponibles para la función general. Proveedores detectados: ${providerPriority.length > 0 ? providerPriority.map(getProviderLabel).join(', ') : 'ninguno'}.`
+            });
         }
 
         console.log('\n=== Nueva petición a IA API ===');
@@ -386,35 +548,26 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                 const lowerError = errorMessage.toLowerCase();
 
                 if (attempts < maxAttempts - 1 && (
+                    isAuthError(response.status, lowerError) ||
                     lowerError.includes('quota') ||
                     lowerError.includes('limit exceeded') ||
-                    lowerError.includes('key not valid') ||
-                    lowerError.includes('invalid api key') ||
                     response.status === 429
                 )) {
-                    console.warn(`⚠️ Key ${apiKeyManager.maskKey(currentApiKey)} de ${providerUsed} alcanzó límite, intentando con otra...`);
+                    const blockReason = isAuthError(response.status, lowerError) ? 'auth_error' : 'quota_or_rate_limit';
+                    console.warn(`⚠️ Key ${apiKeyManager.maskKey(currentApiKey)} de ${providerUsed} falló (${blockReason}), intentando con otra...`);
                     apiKeyManager.recordError(currentApiKey);
+                    apiKeyManager.blockKey(currentApiKey, blockReason);
 
                     const previousKey = currentApiKey;
-                    currentApiKey = apiKeyManager.getApiKey(providerUsed, tier, funcType);
+                    currentApiKey = apiKeyManager.getApiKeyForProvider(providerUsed, tier, funcType);
 
                     if (!currentApiKey || currentApiKey === previousKey) {
                         const otherProvider = providerUsed === PROVIDERS.GEMINI ? PROVIDERS.GROQ : PROVIDERS.GEMINI;
-                        currentApiKey = apiKeyManager.getApiKey(otherProvider, tier, funcType);
+                        currentApiKey = apiKeyManager.getApiKeyForProvider(otherProvider, tier, funcType);
                         if (currentApiKey) {
                             providerUsed = otherProvider;
                             endpointUsed = otherProvider === PROVIDERS.GEMINI ? GEMINI_ENDPOINT : GROQ_ENDPOINT;
-                            if (providerUsed === PROVIDERS.GROQ) {
-                                requestBody = {
-                                    model: GROQ_MODEL,
-                                    messages: [
-                                        { role: "system", content: systemInstruction || "You are a helpful AI assistant." },
-                                        { role: "user", content: prompt }
-                                    ],
-                                    temperature: 0.2,
-                                    max_tokens: 8192,
-                                };
-                            }
+                            requestBody = buildAIRequestBody(providerUsed, { prompt, systemInstruction });
                         } else {
                             break;
                         }
@@ -433,24 +586,14 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
 
                 if (attempts < maxAttempts) {
                     const previousKey = currentApiKey;
-                    currentApiKey = apiKeyManager.getApiKey(providerUsed, tier, funcType);
+                    currentApiKey = apiKeyManager.getApiKeyForProvider(providerUsed, tier, funcType);
                     if (!currentApiKey || currentApiKey === previousKey) {
                         const otherProvider = providerUsed === PROVIDERS.GEMINI ? PROVIDERS.GROQ : PROVIDERS.GEMINI;
-                        currentApiKey = apiKeyManager.getApiKey(otherProvider, tier, funcType);
+                        currentApiKey = apiKeyManager.getApiKeyForProvider(otherProvider, tier, funcType);
                         if (currentApiKey) {
                             providerUsed = otherProvider;
                             endpointUsed = otherProvider === PROVIDERS.GEMINI ? GEMINI_ENDPOINT : GROQ_ENDPOINT;
-                            if (providerUsed === PROVIDERS.GROQ) {
-                                requestBody = {
-                                    model: GROQ_MODEL,
-                                    messages: [
-                                        { role: "system", content: systemInstruction || "You are a helpful AI assistant." },
-                                        { role: "user", content: prompt }
-                                    ],
-                                    temperature: 0.2,
-                                    max_tokens: 8192,
-                                };
-                            }
+                            requestBody = buildAIRequestBody(providerUsed, { prompt, systemInstruction });
                         }
                     }
                 }
@@ -477,6 +620,7 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                 errorData.error ||
                 `Error del API de ${providerUsed}: ${response?.status || '500'} ${response?.statusText || 'Error'}`;
 
+            errorMessage = normalizeProviderErrorMessage(providerUsed, errorMessage, response?.status);
             const lowerError = errorMessage.toLowerCase();
             if (lowerError.includes('overloaded') || lowerError.includes('model is overloaded')) {
                 errorMessage = 'El modelo está sobrecargado. Por favor intenta más tarde.';
@@ -490,9 +634,14 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                 ? (lowerError.includes('overloaded') ? 503 : response.status)
                 : 500;
 
+            if (isAuthError(response?.status, lowerError)) {
+                releaseRateLimitSlot(req);
+            }
+
             return res.status(statusCode).json({
                 error: errorMessage,
-                originalStatus: response?.status
+                originalStatus: response?.status,
+                provider: providerUsed
             });
         }
 
@@ -1323,6 +1472,10 @@ Devuelve SOLO un array JSON con mínimo 3 opciones de precio para las ubicacione
 // Endpoint de salud para KeepAlive
 app.get('/api/ai/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/ai/usage', (req, res) => {
+    res.json(getProxyUsageSummary());
 });
 
 const PORT = process.env.PORT || 4001;

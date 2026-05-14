@@ -6,7 +6,8 @@
 
 export class ImageUploadService {
     // Configuración
-    static MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB (actualizado)
+    static MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB de entrada permitido
+    static TARGET_FILE_SIZE_MB = 2; // 2MB objetivo de salida
     static ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
     /**
@@ -31,11 +32,93 @@ export class ImageUploadService {
             const fileSizeMB = (file.size / 1024 / 1024).toFixed(2);
             return { 
                 valid: false, 
-                error: `El archivo es demasiado grande (${fileSizeMB}MB). El tamaño máximo permitido es ${maxSizeMB}MB. Los usuarios Pro pueden comprimir imágenes automáticamente.` 
+                error: `El archivo es demasiado grande (${fileSizeMB}MB). El tamaño máximo permitido es ${maxSizeMB}MB incluso antes de comprimir.` 
             };
         }
 
         return { valid: true, error: null };
+    }
+
+    static getTargetSizeBytes(targetSizeMB = this.TARGET_FILE_SIZE_MB) {
+        return targetSizeMB * 1024 * 1024;
+    }
+
+    static async loadImageElement(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error('Error al cargar la imagen'));
+                img.src = e.target.result;
+            };
+            reader.onerror = () => reject(new Error('Error al leer el archivo'));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    static calculateDimensions(width, height, maxDimension) {
+        if (Math.max(width, height) <= maxDimension) {
+            return { width, height };
+        }
+
+        if (width >= height) {
+            return {
+                width: maxDimension,
+                height: Math.round((height * maxDimension) / width)
+            };
+        }
+
+        return {
+            width: Math.round((width * maxDimension) / height),
+            height: maxDimension
+        };
+    }
+
+    static drawImageToCanvas(image, width, height) {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            throw new Error('No se pudo preparar la compresión de imagen');
+        }
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(image, 0, 0, width, height);
+
+        return canvas;
+    }
+
+    static async canvasToBlob(canvas, mimeType, quality) {
+        return new Promise((resolve, reject) => {
+            canvas.toBlob(
+                (blob) => {
+                    if (!blob) {
+                        reject(new Error('No se pudo generar la imagen comprimida'));
+                        return;
+                    }
+                    resolve(blob);
+                },
+                mimeType,
+                quality
+            );
+        });
+    }
+
+    static blobToFile(blob, originalFile, fallbackExtension = 'jpg') {
+        const mimeType = blob.type || originalFile.type || 'image/jpeg';
+        const extension = mimeType.split('/')[1] || fallbackExtension;
+        const safeName = originalFile.name.replace(/\.[^.]+$/i, '');
+
+        return new File([blob], `${safeName}.${extension}`, {
+            type: mimeType,
+            lastModified: Date.now()
+        });
     }
 
     /**
@@ -46,49 +129,12 @@ export class ImageUploadService {
      * @returns {Promise<File>} - Archivo comprimido
      */
     static async compressImage(file, maxWidth = 1920, quality = 0.8) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const img = new Image();
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    let width = img.width;
-                    let height = img.height;
-
-                    // Redimensionar si es necesario
-                    if (width > maxWidth) {
-                        height = (height * maxWidth) / width;
-                        width = maxWidth;
-                    }
-
-                    canvas.width = width;
-                    canvas.height = height;
-
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    canvas.toBlob(
-                        (blob) => {
-                            if (!blob) {
-                                reject(new Error('Error al comprimir la imagen'));
-                                return;
-                            }
-                            const compressedFile = new File([blob], file.name, {
-                                type: file.type,
-                                lastModified: Date.now()
-                            });
-                            resolve(compressedFile);
-                        },
-                        file.type,
-                        quality
-                    );
-                };
-                img.onerror = () => reject(new Error('Error al cargar la imagen'));
-                img.src = e.target.result;
-            };
-            reader.onerror = () => reject(new Error('Error al leer el archivo'));
-            reader.readAsDataURL(file);
-        });
+        const img = await this.loadImageElement(file);
+        const dimensions = this.calculateDimensions(img.width, img.height, maxWidth);
+        const canvas = this.drawImageToCanvas(img, dimensions.width, dimensions.height);
+        const outputType = file.type === 'image/png' ? 'image/jpeg' : file.type;
+        const blob = await this.canvasToBlob(canvas, outputType, quality);
+        return this.blobToFile(blob, file);
     }
 
     /**
@@ -114,110 +160,165 @@ export class ImageUploadService {
             };
         }
 
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const img = new Image();
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    let width = img.width;
-                    let height = img.height;
+        const img = await this.loadImageElement(file);
+        const dimensions = this.calculateDimensions(img.width, img.height, maxWidth);
+        const canvas = this.drawImageToCanvas(img, dimensions.width, dimensions.height);
+        const outputType = file.type === 'image/png' ? 'image/jpeg' : file.type;
 
-                    // Calcular dimensiones optimizadas
-                    if (width > maxWidth) {
-                        height = (height * maxWidth) / width;
-                        width = maxWidth;
-                    }
-
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    // Intentar diferentes niveles de calidad
-                    const tryCompress = (quality) => {
-                        return new Promise((resolveQuality) => {
-                            canvas.toBlob(
-                                (blob) => {
-                                    if (!blob) {
-                                        resolveQuality(null);
-                                        return;
-                                    }
-                                    resolveQuality({
-                                        blob,
-                                        size: blob.size,
-                                        quality
-                                    });
-                                },
-                                file.type === 'image/png' ? 'image/jpeg' : file.type, // Convertir PNG a JPEG para mejor compresión
-                                quality
-                            );
-                        });
-                    };
-
-                    // Búsqueda binaria de la calidad óptima
-                    const findOptimalQuality = async (minQ, maxQ) => {
-                        if (maxQ - minQ < 0.05) {
-                            // Si la diferencia es muy pequeña, usar la calidad mínima
-                            return await tryCompress(minQ);
-                        }
-
-                        const midQ = (minQ + maxQ) / 2;
-                        const result = await tryCompress(midQ);
-
-                        if (!result || result.size <= 0) {
-                            return await tryCompress(minQ);
-                        }
-
-                        if (result.size <= targetSizeBytes) {
-                            // Si es menor al objetivo, intentar calidad más alta
-                            const higher = await tryCompress((midQ + maxQ) / 2);
-                            if (higher && higher.size <= targetSizeBytes && higher.quality > result.quality) {
-                                return higher;
-                            }
-                            return result;
-                        } else {
-                            // Si es mayor, reducir calidad
-                            return await findOptimalQuality(minQ, midQ);
-                        }
-                    };
-
-                    // Iniciar compresión
-                    findOptimalQuality(minQuality, 0.95)
-                        .then((result) => {
-                            if (!result || !result.blob) {
-                                reject(new Error('No se pudo comprimir la imagen'));
-                                return;
-                            }
-
-                            const compressedFile = new File(
-                                [result.blob],
-                                file.name.replace(/\.png$/i, '.jpg'), // Cambiar extensión si era PNG
-                                {
-                                    type: result.blob.type,
-                                    lastModified: Date.now()
-                                }
-                            );
-
-                            const reduction = ((originalSize - compressedFile.size) / originalSize) * 100;
-
-                            resolve({
-                                file: compressedFile,
-                                originalSize,
-                                compressedSize: compressedFile.size,
-                                reduction: Math.round(reduction * 100) / 100,
-                                quality: result.quality
-                            });
-                        })
-                        .catch((error) => {
-                            reject(new Error(`Error al comprimir: ${error.message}`));
-                        });
-                };
-                img.onerror = () => reject(new Error('Error al cargar la imagen'));
-                img.src = e.target.result;
+        const tryCompress = async (quality) => {
+            const blob = await this.canvasToBlob(canvas, outputType, quality);
+            return {
+                blob,
+                size: blob.size,
+                quality
             };
-            reader.onerror = () => reject(new Error('Error al leer el archivo'));
-            reader.readAsDataURL(file);
+        };
+
+        const findOptimalQuality = async (minQ, maxQ) => {
+            if (maxQ - minQ < 0.05) {
+                return tryCompress(minQ);
+            }
+
+            const midQ = (minQ + maxQ) / 2;
+            const result = await tryCompress(midQ);
+
+            if (result.size <= targetSizeBytes) {
+                const higher = await tryCompress((midQ + maxQ) / 2);
+                if (higher.size <= targetSizeBytes && higher.quality > result.quality) {
+                    return higher;
+                }
+                return result;
+            }
+
+            return findOptimalQuality(minQ, midQ);
+        };
+
+        const result = await findOptimalQuality(minQuality, 0.95);
+        const compressedFile = this.blobToFile(result.blob, file);
+        const reduction = ((originalSize - compressedFile.size) / originalSize) * 100;
+
+        return {
+            file: compressedFile,
+            originalSize,
+            compressedSize: compressedFile.size,
+            reduction: Math.round(reduction * 100) / 100,
+            quality: result.quality
+        };
+    }
+
+    /**
+     * Compresión inteligente para dejar la imagen cerca de 2MB sin degradación agresiva.
+     * Ajusta calidad y, si hace falta, reduce dimensiones de forma progresiva.
+     */
+    static async compressImageSmart(file, options = {}) {
+        const {
+            targetSizeMB = this.TARGET_FILE_SIZE_MB,
+            maxDimension = 2560,
+            minDimension = 1280,
+            startQuality = 0.92,
+            minQuality = 0.72
+        } = options;
+
+        const validation = this.validateImage(file);
+        if (!validation.valid) {
+            throw new Error(validation.error);
+        }
+
+        const targetSizeBytes = this.getTargetSizeBytes(targetSizeMB);
+        const originalSize = file.size;
+
+        if (originalSize <= targetSizeBytes) {
+            return {
+                file,
+                originalSize,
+                compressedSize: originalSize,
+                reduction: 0,
+                quality: 1,
+                width: null,
+                height: null,
+                skipped: true
+            };
+        }
+
+        const image = await this.loadImageElement(file);
+        const outputType = file.type === 'image/png' ? 'image/jpeg' : file.type;
+
+        let currentMaxDimension = Math.min(maxDimension, Math.max(image.width, image.height));
+        let bestResult = null;
+
+        while (currentMaxDimension >= minDimension) {
+            const dimensions = this.calculateDimensions(image.width, image.height, currentMaxDimension);
+            const canvas = this.drawImageToCanvas(image, dimensions.width, dimensions.height);
+
+            let quality = startQuality;
+            let candidate = null;
+
+            while (quality >= minQuality) {
+                const blob = await this.canvasToBlob(canvas, outputType, quality);
+                candidate = {
+                    blob,
+                    quality,
+                    width: dimensions.width,
+                    height: dimensions.height,
+                    size: blob.size
+                };
+
+                if (blob.size <= targetSizeBytes) {
+                    break;
+                }
+
+                quality = Number((quality - 0.06).toFixed(2));
+            }
+
+            if (candidate) {
+                if (!bestResult || candidate.size < bestResult.size) {
+                    bestResult = candidate;
+                }
+
+                if (candidate.size <= targetSizeBytes) {
+                    const compressedFile = this.blobToFile(candidate.blob, file);
+                    const reduction = ((originalSize - compressedFile.size) / originalSize) * 100;
+
+                    return {
+                        file: compressedFile,
+                        originalSize,
+                        compressedSize: compressedFile.size,
+                        reduction: Math.round(reduction * 100) / 100,
+                        quality: candidate.quality,
+                        width: candidate.width,
+                        height: candidate.height,
+                        skipped: false
+                    };
+                }
+            }
+
+            currentMaxDimension = Math.round(currentMaxDimension * 0.85);
+        }
+
+        if (!bestResult) {
+            throw new Error('No se pudo comprimir la imagen');
+        }
+
+        const compressedFile = this.blobToFile(bestResult.blob, file);
+        const reduction = ((originalSize - compressedFile.size) / originalSize) * 100;
+
+        return {
+            file: compressedFile,
+            originalSize,
+            compressedSize: compressedFile.size,
+            reduction: Math.round(reduction * 100) / 100,
+            quality: bestResult.quality,
+            width: bestResult.width,
+            height: bestResult.height,
+            skipped: false,
+            targetNotMet: bestResult.size > targetSizeBytes
+        };
+    }
+
+    static async prepareImageForApp(file, options = {}) {
+        return this.compressImageSmart(file, {
+            targetSizeMB: this.TARGET_FILE_SIZE_MB,
+            ...options
         });
     }
 
@@ -245,39 +346,31 @@ export class ImageUploadService {
         
         if (autoCompress) {
             try {
-                // Si el archivo excede el límite y es usuario Pro, usar compresión avanzada
-                if (file.size > this.MAX_FILE_SIZE && isPro) {
-                    const compressed = await this.compressImageAdvanced(file, 5, 1920, 0.6);
-                    fileToUpload = compressed.file;
-                    console.log(`Imagen comprimida: ${(file.size / 1024 / 1024).toFixed(2)}MB → ${(compressed.compressedSize / 1024 / 1024).toFixed(2)}MB (${compressed.reduction.toFixed(1)}% reducción)`);
-                } else if (file.size > this.MAX_FILE_SIZE) {
-                    // Usuario Free con archivo grande
-                    throw new Error(`El archivo es demasiado grande (${(file.size / 1024 / 1024).toFixed(2)}MB). El tamaño máximo permitido es ${(this.MAX_FILE_SIZE / 1024 / 1024).toFixed(1)}MB. Los usuarios Pro pueden comprimir imágenes automáticamente.`);
-                } else {
-                    // Compresión básica para optimizar
-                    fileToUpload = await this.compressImage(file, 1920, 0.85);
-                }
+                const compressed = await this.prepareImageForApp(file, {
+                    targetSizeMB: this.TARGET_FILE_SIZE_MB,
+                    maxDimension: isPro ? 2560 : 2200,
+                    minDimension: 1280
+                });
+                fileToUpload = compressed.file;
+                console.log(`Imagen preparada: ${(file.size / 1024 / 1024).toFixed(2)}MB → ${(compressed.compressedSize / 1024 / 1024).toFixed(2)}MB (${compressed.reduction.toFixed(1)}% reducción)`);
             } catch (error) {
                 // Si falla la compresión pero el archivo es válido, intentar subir el original
                 if (file.size <= this.MAX_FILE_SIZE) {
                     console.warn('Error comprimiendo imagen, subiendo original:', error);
                     fileToUpload = file;
                 } else {
-                    // Si el archivo es demasiado grande y no se pudo comprimir, lanzar error
                     throw error;
                 }
             }
         }
 
         try {
-            // Usar la API existente /api/upload
             const formData = new FormData();
             formData.append('file', fileToUpload);
 
-            // Usar la API existente (mismo servidor que Gemini)
-            // El servidor corre en el puerto 4001 por defecto
-            const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:4001';
-            const uploadUrl = `${apiBaseUrl}/api/upload`;
+            // En dev sin VITE_API_URL: subida local vía Vite (guardado en uploads/reporte). Con backend: usar su URL.
+            const apiBaseUrl = import.meta.env.VITE_API_URL;
+            const uploadUrl = apiBaseUrl ? `${apiBaseUrl}/api/upload` : '/api/upload';
 
             const response = await fetch(uploadUrl, {
                 method: 'POST',

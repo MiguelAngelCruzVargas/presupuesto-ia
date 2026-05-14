@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Lock, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -110,13 +111,44 @@ const ChangePasswordModal = ({ isOpen, onClose }) => {
         onClose();
     };
 
+    useEffect(() => {
+        if (!isOpen || typeof document === 'undefined') return undefined;
+
+        const originalOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+
+        const handleEscape = (event) => {
+            if (event.key === 'Escape') {
+                handleClose();
+            }
+        };
+
+        window.addEventListener('keydown', handleEscape);
+
+        return () => {
+            document.body.style.overflow = originalOverflow;
+            window.removeEventListener('keydown', handleEscape);
+        };
+    }, [isOpen]);
+
     if (!isOpen) return null;
 
-    return (
+    const modalContent = (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div
+                className="absolute inset-0"
+                onClick={handleClose}
+                aria-hidden="true"
+            />
+            <div
+                className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="change-password-title"
+            >
                 <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-                    <h3 className="font-bold text-lg flex items-center">
+                    <h3 id="change-password-title" className="font-bold text-lg flex items-center">
                         <Lock className="mr-2" size={20} /> Cambiar Contraseña
                     </h3>
                     <button
@@ -298,6 +330,12 @@ const ChangePasswordModal = ({ isOpen, onClose }) => {
             </div>
         </div>
     );
+
+    if (typeof document !== 'undefined') {
+        return createPortal(modalContent, document.body);
+    }
+
+    return modalContent;
 };
 
 export default ChangePasswordModal;

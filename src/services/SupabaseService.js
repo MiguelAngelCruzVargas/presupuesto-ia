@@ -7,6 +7,27 @@ import { supabase } from '../lib/supabaseClient';
 import { generateId } from '../utils/helpers';
 
 export class SupabaseService {
+    static normalizeError(error, context = 'SupabaseService') {
+        const message = error?.message || '';
+        const details = error?.details || '';
+        const combined = `${message} ${details}`.toLowerCase();
+        const normalizedError = error instanceof Error ? error : new Error(message || 'Error de Supabase');
+
+        normalizedError.context = context;
+        normalizedError.isCloudUnavailable =
+            combined.includes('failed to fetch') ||
+            combined.includes('network') ||
+            combined.includes('fetch') ||
+            combined.includes('cloudflare') ||
+            combined.includes('web server is down') ||
+            combined.includes('error code 521') ||
+            combined.includes('<!doctype html');
+
+        normalizedError.isOfflineCapable = normalizedError.isCloudUnavailable;
+
+        return normalizedError;
+    }
+
     /**
      * Save a project to Supabase
      * @param {Object} projectData - Full project data
@@ -18,20 +39,31 @@ export class SupabaseService {
             const userId = user ? user.id : null; // Optional: handle auth later
 
             // Prepare data for DB
-            // We store the heavy JSON in a 'data' column
+            // We store the heavy JSON in a 'data' column. Usar siempre projectData.id si existe
+            // para actualizar la fila correcta (evitar crear fila nueva y que los datos no persistan).
             const id = projectData.id || generateId();
+            const dataToStore = { ...projectData, id }; // Incluir id en el JSON para que al cargar venga el id
 
             const payload = {
                 id: id,
                 name: projectData.projectInfo?.project || 'Sin Nombre',
                 client: projectData.projectInfo?.client || '',
                 location: projectData.projectInfo?.location || '',
-                data: projectData, // Store full JSON
+                data: dataToStore, // Store full JSON con id incluido
                 updated_at: new Date().toISOString()
             };
 
             if (userId) payload.user_id = userId;
 
+            if (import.meta.env?.DEV && payload.data?.projectInfo) {
+                console.debug('[Reporte] Supabase.saveProject - enviando projectInfo:', {
+                    project: payload.data.projectInfo.project,
+                    contractor: payload.data.projectInfo.contractor,
+                    concepts: payload.data.projectInfo.concepts,
+                    ubicacion: payload.data.projectInfo.ubicacion,
+                    lastReportDate: payload.data.projectInfo.lastReportDate,
+                });
+            }
             const { data, error } = await supabase
                 .from('projects')
                 .upsert(payload)
@@ -43,7 +75,7 @@ export class SupabaseService {
             return data;
         } catch (error) {
             console.error('Error saving project to Supabase:', error);
-            throw error;
+            throw this.normalizeError(error, 'SupabaseService.saveProject');
         }
     }
 
@@ -125,15 +157,26 @@ export class SupabaseService {
             // Validación adicional: verificar que el proyecto pertenece al usuario
             // (aunque RLS debería proteger esto, validamos como capa adicional)
             if (data.user_id && data.user_id !== user.id) {
-                console.warn('Intento de acceso a proyecto de otro usuario bloqueado');
                 throw new Error('No tienes permisos para acceder a este proyecto');
             }
 
-            return data.data; // The 'data' column contains our JSON
+            const fullData = data.data || {}; // The 'data' column contains our JSON
+            // Incluir siempre el id de la fila para que saveProject actualice la misma fila y no cree una nueva
+            const projectWithId = { ...fullData, id: data.id };
+            if (import.meta.env?.DEV && fullData?.projectInfo) {
+                console.debug('[Reporte] Supabase.getProject - projectInfo en data:', {
+                    project: fullData.projectInfo.project,
+                    contractor: fullData.projectInfo.contractor,
+                    concepts: fullData.projectInfo.concepts,
+                    ubicacion: fullData.projectInfo.ubicacion,
+                    lastReportDate: fullData.projectInfo.lastReportDate,
+                });
+            }
+            return projectWithId;
         } catch (error) {
             console.error('Error loading project details:', error);
             // Re-lanzar el error para que el componente pueda manejarlo
-            throw error;
+            throw this.normalizeError(error, 'SupabaseService.getProject');
         }
     }
 
@@ -151,7 +194,7 @@ export class SupabaseService {
             if (error) throw error;
         } catch (error) {
             console.error('Error deleting project:', error);
-            throw error;
+            throw this.normalizeError(error, 'SupabaseService.deleteProject');
         }
     }
 
@@ -170,7 +213,7 @@ export class SupabaseService {
             if (error) throw error;
         } catch (error) {
             console.error('Error updating project name:', error);
-            throw error;
+            throw this.normalizeError(error, 'SupabaseService.updateProjectName');
         }
     }
 }

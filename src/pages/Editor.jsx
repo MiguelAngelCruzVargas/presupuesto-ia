@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Save, Bot, Sparkles, AlertTriangle, FileText, X, FolderOpen, Database, Trash2, Plus, Printer, Package, Ruler, Calendar, Calculator, Edit, Info, Camera, Share2, Upload, Wand2 } from 'lucide-react';
+import { Save, Bot, Sparkles, AlertTriangle, FileText, X, FolderOpen, Database, Trash2, Plus, Printer, Package, Ruler, Calendar, Calculator, Edit, Info, Camera, Share2, Upload, Wand2, CheckCircle2, Clock3 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
 import { useProject } from '../context/ProjectContext';
@@ -15,6 +15,7 @@ import { AIBudgetService } from '../services/AIBudgetService';
 import { ValidationService } from '../services/ValidationService';
 import { ErrorService } from '../services/ErrorService';
 import { PDFService } from '../services/PDFService';
+import { BudgetDocumentService } from '../services/BudgetDocumentService';
 import { APUService } from '../services/APUService';
 import AIPriceHelper from '../components/ai/AIPriceHelper';
 import AIDescriptionGenerator from '../components/ai/AIDescriptionGenerator';
@@ -43,11 +44,44 @@ const Editor = () => {
         calculateSubtotal, calculateTotal, getCalculations, showToast, catalog
     } = useProject();
     const { checkLimit, incrementUsage, isPro } = useSubscription();
+    const budgetCategories = ['Materiales', 'Mano de Obra', 'Equipos', 'Instalaciones', 'Obra Civil'];
+    const specialtyOptions = [
+        'General',
+        'Obra Civil',
+        'Albañilería',
+        'Instalación Eléctrica',
+        'Instalación Hidrosanitaria',
+        'Instalación de Gas',
+        'Acabados',
+        'Estructura',
+        'Herrería y Aluminio',
+        'Carpintería',
+        'Aire Acondicionado / Clima',
+        'Voz y Datos',
+        'Jardinería y Paisajismo'
+    ];
+    const budgetUnitOptions = [
+        { value: 'pza', label: 'Pza' },
+        { value: 'und', label: 'Und' },
+        { value: 'lote', label: 'Lote' },
+        { value: 'm', label: 'm' },
+        { value: 'ml', label: 'ml' },
+        { value: 'm²', label: 'm²' },
+        { value: 'm³', label: 'm³' },
+        { value: 'kg', label: 'kg' },
+        { value: 'ton', label: 'Ton' },
+        { value: 'lt', label: 'Lt' },
+        { value: 'jgo', label: 'Jgo' },
+        { value: 'servicio', label: 'Servicio' },
+        { value: 'global', label: 'Global' }
+    ];
+    const selectOptionClassName = 'bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100';
 
     const [aiPrompt, setAiPrompt] = useState('');
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [showAnalysisModal, setShowAnalysisModal] = useState(false);
     const [technicalDescription, setTechnicalDescription] = useState('');
+    const [technicalDescriptionMeta, setTechnicalDescriptionMeta] = useState(null);
     const [isWritingDesc, setIsWritingDesc] = useState(false);
     const [showAIDescModal, setShowAIDescModal] = useState(false);
 
@@ -78,6 +112,7 @@ const Editor = () => {
     const [targetTotal, setTargetTotal] = useState('');
     const [importedItemsCandidate, setImportedItemsCandidate] = useState(null); // Items extraídos par mostrar modal de confirmar
     const [showImportConfirmModal, setShowImportConfirmModal] = useState(false);
+    const [itemValidationInsights, setItemValidationInsights] = useState({});
 
 
     // Subscription limits
@@ -113,6 +148,7 @@ const Editor = () => {
                         setMaterialList(fullData.materialList || []);
                         setMaterialAssumptions(fullData.materialAssumptions || []);
                         setTechnicalDescription(fullData.technicalDescription || '');
+                        setTechnicalDescriptionMeta(fullData.technicalDescriptionMeta || null);
                         setApuData(fullData.apuData || null);
                         setScheduleData(fullData.scheduleData || null);
 
@@ -190,6 +226,72 @@ const Editor = () => {
 
     const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
 
+    const resetEditorState = React.useCallback(() => {
+        const freshProjectInfo = {
+            id: generateId(),
+            client: '',
+            project: 'Presupuesto Nuevo',
+            date: new Date().toISOString().split('T')[0],
+            currency: 'MXN',
+            taxRate: 16,
+            type: 'General',
+            indirect_percentage: 0,
+            profit_percentage: 0,
+            location: 'México'
+        };
+
+        setProjectInfo(freshProjectInfo);
+        setItems([]);
+        setMaterialList([]);
+        setMaterialAssumptions([]);
+        setTechnicalDescription('');
+        setTechnicalDescriptionMeta(null);
+        setApuData(null);
+        setScheduleData(null);
+        setCurrentAPUItem(null);
+        setCurrentEditingItem(null);
+        setCurrentGeneratorItem(null);
+        setShowAPUModal(false);
+        setShowGeneratorModal(false);
+        setShowAIDescModal(false);
+        setItemValidationInsights({});
+        setHasUnsavedChanges(false);
+        setLastSaved(null);
+        savedStateRef.current = JSON.stringify({
+            projectInfo: freshProjectInfo,
+            items: [],
+            scheduleData: null,
+            materialList: [],
+            materialAssumptions: [],
+            technicalDescription: '',
+            technicalDescriptionMeta: null,
+            apuData: null
+        });
+    }, [setProjectInfo, setItems]);
+
+    const handleStartNewProject = React.useCallback(() => {
+        if (hasUnsavedChanges && !isDemoMode) {
+            setConfirmModal({
+                isOpen: true,
+                title: 'Nuevo Presupuesto',
+                message: 'Se limpiará el presupuesto actual para comenzar uno nuevo. ¿Deseas continuar?',
+                confirmText: 'Crear nuevo',
+                type: 'warning',
+                onConfirm: () => {
+                    resetEditorState();
+                    navigate('/editor', { replace: true });
+                    closeConfirmModal();
+                    showToast('Editor reiniciado para un nuevo presupuesto', 'success');
+                }
+            });
+            return;
+        }
+
+        resetEditorState();
+        navigate('/editor', { replace: true });
+        showToast('Editor reiniciado para un nuevo presupuesto', 'success');
+    }, [hasUnsavedChanges, isDemoMode, navigate, resetEditorState, showToast]);
+
     const handleSaveProject = async (isAuto = false) => {
         setIsAutoSaving(isAuto);
         // En modo demo, mostrar mensaje y redirigir a registro
@@ -242,6 +344,7 @@ const Editor = () => {
                 materialList,
                 materialAssumptions,
                 technicalDescription,
+                technicalDescriptionMeta,
                 apuData
             };
 
@@ -259,9 +362,10 @@ const Editor = () => {
             if (!isAutoSaving) {
                 showToast(successMessage, 'success');
             }
+            navigate(`/editor/${saved.id}`, { replace: true });
             setHasUnsavedChanges(false);
             setLastSaved(new Date());
-            savedStateRef.current = JSON.stringify({ projectInfo, items, scheduleData, materialList, materialAssumptions, technicalDescription, apuData });
+            savedStateRef.current = JSON.stringify({ projectInfo, items, scheduleData, materialList, materialAssumptions, technicalDescription, technicalDescriptionMeta, apuData });
         } catch (error) {
             console.error('Error al guardar proyecto:', error);
             if (!isAutoSaving) {
@@ -277,7 +381,7 @@ const Editor = () => {
 
     // Rastrear cambios sin guardar
     React.useEffect(() => {
-        const currentState = JSON.stringify({ projectInfo, items, scheduleData, materialList, materialAssumptions, technicalDescription, apuData });
+        const currentState = JSON.stringify({ projectInfo, items, scheduleData, materialList, materialAssumptions, technicalDescription, technicalDescriptionMeta, apuData });
 
         if (savedStateRef.current === null) {
             // Estado inicial - guardar como referencia
@@ -286,7 +390,54 @@ const Editor = () => {
         } else if (savedStateRef.current !== currentState) {
             setHasUnsavedChanges(true);
         }
-    }, [projectInfo, items, scheduleData, materialList, materialAssumptions, technicalDescription, apuData]);
+    }, [projectInfo, items, scheduleData, materialList, materialAssumptions, technicalDescription, technicalDescriptionMeta, apuData]);
+
+    React.useEffect(() => {
+        const searchParams = new URLSearchParams(location.search);
+        const wantsNew = searchParams.get('new') === 'true';
+        const queryProjectId = searchParams.get('project');
+
+        if (wantsNew) {
+            resetEditorState();
+            navigate('/editor', { replace: true });
+            return;
+        }
+
+        if (queryProjectId && queryProjectId !== id) {
+            navigate(`/editor/${queryProjectId}`, { replace: true });
+        }
+    }, [location.search, id, navigate, resetEditorState]);
+
+    React.useEffect(() => {
+        if (!items || items.length === 0) {
+            setItemValidationInsights({});
+            return;
+        }
+
+        let cancelled = false;
+        const timeoutId = setTimeout(async () => {
+            try {
+                const location = projectInfo.location || 'México';
+                const insightsEntries = await Promise.all(
+                    items.map(async (item) => {
+                        const insight = await ValidationService.validateItemAgainstBase(item, { location });
+                        return [item.id, insight];
+                    })
+                );
+
+                if (!cancelled) {
+                    setItemValidationInsights(Object.fromEntries(insightsEntries));
+                }
+            } catch (error) {
+                console.error('Error validating items against base:', error);
+            }
+        }, 500);
+
+        return () => {
+            cancelled = true;
+            clearTimeout(timeoutId);
+        };
+    }, [items, projectInfo.location]);
 
     // Ajustar alturas de textareas después del render
     React.useEffect(() => {
@@ -335,7 +486,7 @@ const Editor = () => {
     // Resetear estado al cargar proyecto
     React.useEffect(() => {
         if (id && projectInfo.id) {
-            savedStateRef.current = JSON.stringify({ projectInfo, items, scheduleData, materialList, materialAssumptions, technicalDescription, apuData });
+            savedStateRef.current = JSON.stringify({ projectInfo, items, scheduleData, materialList, materialAssumptions, technicalDescription, technicalDescriptionMeta, apuData });
             setHasUnsavedChanges(false);
             setLastSaved(new Date());
         }
@@ -395,6 +546,7 @@ const Editor = () => {
                         setMaterialList(fullData.materialList || []);
                         setMaterialAssumptions(fullData.materialAssumptions || []);
                         setTechnicalDescription(fullData.technicalDescription || '');
+                        setTechnicalDescriptionMeta(fullData.technicalDescriptionMeta || null);
                         setApuData(fullData.apuData || null);
                         setShowLoadModal(false);
                         showToast('Proyecto cargado exitosamente', 'success');
@@ -463,6 +615,36 @@ const Editor = () => {
         setScheduleData(data);
     };
 
+    const currentBudgetSignature = useMemo(
+        () => ProjectPersistenceService.buildBudgetSignature(items, projectInfo),
+        [items, projectInfo]
+    );
+
+    const scheduleFreshness = useMemo(() => {
+        if (!scheduleData || !(scheduleData.phases?.length || scheduleData.tasks?.length)) {
+            return { hasContent: false, isStale: false };
+        }
+
+        return {
+            hasContent: true,
+            isStale: Boolean(scheduleData.sourceSignature && scheduleData.sourceSignature !== currentBudgetSignature)
+        };
+    }, [scheduleData, currentBudgetSignature]);
+
+    const technicalDescriptionFreshness = useMemo(() => {
+        if (!technicalDescription?.trim()) {
+            return { hasContent: false, isStale: false };
+        }
+
+        return {
+            hasContent: true,
+            isStale: Boolean(
+                technicalDescriptionMeta?.sourceSignature &&
+                technicalDescriptionMeta.sourceSignature !== currentBudgetSignature
+            )
+        };
+    }, [technicalDescription, technicalDescriptionMeta, currentBudgetSignature]);
+
     const generateBudgetFromAI = async () => {
         if (!aiPrompt.trim()) return;
 
@@ -493,8 +675,9 @@ const Editor = () => {
             setAiPrompt('');
             showToast('Presupuesto generado con éxito', 'success');
         } catch (error) {
-            console.error(error);
-            showToast('Error al generar presupuesto', 'error');
+            const errorMessage = ErrorService.getErrorMessage(error);
+            ErrorService.logError(error, 'Editor.generateBudgetFromAI');
+            showToast(errorMessage, 'error', error);
         } finally {
             setIsAiLoading(false);
         }
@@ -509,6 +692,11 @@ const Editor = () => {
         try {
             const desc = await AIBudgetService.generateTechnicalDescription(items, projectInfo);
             setTechnicalDescription(desc);
+            setTechnicalDescriptionMeta({
+                generatedAt: new Date().toISOString(),
+                generationMode: 'ai',
+                sourceSignature: currentBudgetSignature
+            });
             // Marcar que hay cambios para que el autoguardado la guarde
             setHasUnsavedChanges(true);
             showToast('Memoria descriptiva generada. Se guardará automáticamente.', 'success');
@@ -529,6 +717,11 @@ const Editor = () => {
         try {
             const calc = getCalculations();
             const doc = new jsPDF();
+            const budgetDocumentMeta = BudgetDocumentService.registerGeneratedBudget({
+                projectName: projectInfo.project,
+                clientName: projectInfo.client,
+                createdAt: new Date()
+            });
             await PDFService.generateBudgetPDF(doc, {
                 projectInfo,
                 items,
@@ -537,11 +730,12 @@ const Editor = () => {
                 profit: calc.profit,
                 tax: calc.tax,
                 total: calc.total,
-                technicalDescription
+                technicalDescription,
+                budgetDocumentMeta
             });
-            doc.save(`Presupuesto_${projectInfo.project || 'SinNombre'}.pdf`);
+            doc.save(budgetDocumentMeta.fileName);
             setShowPDFPreview(false);
-            showToast('PDF exportado correctamente', 'success');
+            showToast(`PDF exportado correctamente: ${budgetDocumentMeta.budgetNumber}`, 'success');
         } catch (error) {
             console.error(error);
             showToast('Error al exportar PDF', 'error');
@@ -904,7 +1098,7 @@ const Editor = () => {
             {/* Header Editor */}
             <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-6">
                 {/* Top Row: Project Name & Actions */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
                     <div className="flex-1 w-full md:w-auto">
                         <label className="block text-xs font-bold text-slate-400 dark:text-slate-400 uppercase mb-1">Proyecto</label>
                         <input
@@ -914,7 +1108,7 @@ const Editor = () => {
                             placeholder="Nombre del Proyecto"
                         />
                     </div>
-                    <div className="flex gap-2 self-end md:self-center items-center">
+                    <div className="flex flex-wrap gap-2 self-stretch xl:self-center xl:justify-end items-center">
                         {/* Indicador de cambios sin guardar */}
                         {hasUnsavedChanges && !isDemoMode && (
                             <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-lg text-sm font-medium border border-amber-300 dark:border-amber-700">
@@ -924,10 +1118,19 @@ const Editor = () => {
                             </div>
                         )}
                         {lastSaved && !hasUnsavedChanges && !isDemoMode && (
-                            <div className="text-xs text-slate-500 dark:text-slate-400 hidden md:block">
+                            <div className="hidden md:flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                <CheckCircle2 size={14} className="text-emerald-500" />
                                 Guardado {lastSaved.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                             </div>
                         )}
+                        <button
+                            onClick={handleStartNewProject}
+                            className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg transition border border-emerald-200"
+                            title="Comenzar un presupuesto nuevo"
+                        >
+                            <Plus size={18} />
+                            <span className="hidden xl:inline">Nuevo</span>
+                        </button>
                         <button
                             onClick={() => handleSaveProject(false)}
                             disabled={isSaving || isAutoSaving}
@@ -939,7 +1142,7 @@ const Editor = () => {
                             ) : (
                                 <Save size={18} />
                             )}
-                            <span className="hidden md:inline">
+                            <span className="hidden xl:inline">
                                 {isDemoMode ? 'Guardar (Requiere Cuenta)' : isAutoSaving ? 'Guardando...' : 'Guardar'}
                             </span>
                         </button>
@@ -955,7 +1158,7 @@ const Editor = () => {
                             title="Abrir Proyecto"
                         >
                             <FolderOpen size={18} />
-                            <span className="hidden md:inline">Abrir</span>
+                            <span className="hidden xl:inline">Abrir</span>
                         </button>
                         <button
                             onClick={handleCreateTemplate}
@@ -963,7 +1166,7 @@ const Editor = () => {
                             title="Guardar como Plantilla"
                         >
                             <FileText size={18} />
-                            <span className="hidden md:inline">Plantilla</span>
+                            <span className="hidden xl:inline">Plantilla</span>
                         </button>
                         <button
                             onClick={() => {
@@ -977,14 +1180,14 @@ const Editor = () => {
                             title="Compartir con Cliente"
                         >
                             <Share2 size={18} />
-                            <span className="hidden md:inline">Compartir</span>
+                            <span className="hidden xl:inline">Compartir</span>
                         </button>
                     </div>
                 </div>
 
                 {/* Bottom Row: Details Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-slate-100">
-                    <div className="md:col-span-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 pt-4 border-t border-slate-100">
+                    <div>
                         <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Cliente</label>
                         <input
                             value={projectInfo.client || ''}
@@ -993,7 +1196,7 @@ const Editor = () => {
                             placeholder="Cliente"
                         />
                     </div>
-                    <div className="md:col-span-1">
+                    <div>
                         <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Ubicación</label>
                         <input
                             value={projectInfo.location || ''}
@@ -1002,29 +1205,21 @@ const Editor = () => {
                             placeholder="Ciudad, Estado"
                         />
                     </div>
-                    <div className="md:col-span-1">
+                    <div>
                         <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Especialidad</label>
                         <select
                             value={projectInfo.type || 'General'}
                             onChange={(e) => setProjectInfo({ ...projectInfo, type: e.target.value })}
-                            className="w-full bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg py-1.5 px-3 text-sm font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg py-1.5 px-3 text-sm font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500 dark:[color-scheme:dark]"
                         >
-                            <option>General</option>
-                            <option>Obra Civil</option>
-                            <option>Albañilería</option>
-                            <option>Instalación Eléctrica</option>
-                            <option>Instalación Hidrosanitaria</option>
-                            <option>Instalación de Gas</option>
-                            <option>Acabados</option>
-                            <option>Estructura</option>
-                            <option>Herrería y Aluminio</option>
-                            <option>Carpintería</option>
-                            <option>Aire Acondicionado / Clima</option>
-                            <option>Voz y Datos</option>
-                            <option>Jardinería y Paisajismo</option>
+                            {specialtyOptions.map(option => (
+                                <option key={option} value={option} className={selectOptionClassName}>
+                                    {option}
+                                </option>
+                            ))}
                         </select>
                     </div>
-                    <div className="md:col-span-1">
+                    <div>
                         <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex items-center gap-2">
                             IVA (%)
                             <button
@@ -1048,7 +1243,7 @@ const Editor = () => {
                             placeholder="16"
                         />
                     </div>
-                    <div className="md:col-span-1">
+                    <div>
                         <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex items-center gap-2">
                             Indirectos (%)
                             <button
@@ -1072,7 +1267,7 @@ const Editor = () => {
                             placeholder="0"
                         />
                     </div>
-                    <div className="md:col-span-1">
+                    <div>
                         <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex items-center gap-2">
                             Utilidad (%)
                             <button
@@ -1097,6 +1292,64 @@ const Editor = () => {
                         />
                     </div>
                 </div>
+
+                {!isDemoMode && (
+                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                        <div className={`rounded-2xl border px-4 py-3 ${hasUnsavedChanges
+                            ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
+                            : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300'
+                            }`}>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Estado del proyecto</p>
+                            <p className="mt-2 text-sm font-bold">
+                                {hasUnsavedChanges ? 'Hay cambios pendientes de guardar' : 'Proyecto sincronizado'}
+                            </p>
+                            <p className="mt-1 flex items-center gap-2 text-xs opacity-80">
+                                <Clock3 size={12} />
+                                {lastSaved
+                                    ? `Último guardado ${lastSaved.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`
+                                    : 'Aún no se ha guardado'}
+                            </p>
+                        </div>
+
+                        <div className={`rounded-2xl border px-4 py-3 ${scheduleFreshness.isStale
+                            ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
+                            : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300'
+                            }`}>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Cronograma</p>
+                            <p className="mt-2 text-sm font-bold">
+                                {!scheduleFreshness.hasContent
+                                    ? 'No generado todavía'
+                                    : scheduleFreshness.isStale
+                                        ? 'Desactualizado respecto a las partidas'
+                                        : 'Vigente con las partidas actuales'}
+                            </p>
+                            <p className="mt-1 text-xs opacity-80">
+                                {scheduleData?.generationMode
+                                    ? `Modo: ${scheduleData.generationMode}`
+                                    : 'Genera uno cuando necesites planeación'}
+                            </p>
+                        </div>
+
+                        <div className={`rounded-2xl border px-4 py-3 ${technicalDescriptionFreshness.isStale
+                            ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
+                            : 'border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-900/50 dark:bg-indigo-950/20 dark:text-indigo-300'
+                            }`}>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Memoria descriptiva</p>
+                            <p className="mt-2 text-sm font-bold">
+                                {!technicalDescriptionFreshness.hasContent
+                                    ? 'No generada todavía'
+                                    : technicalDescriptionFreshness.isStale
+                                        ? 'Desactualizada respecto al presupuesto'
+                                        : 'Alineada con las partidas actuales'}
+                            </p>
+                            <p className="mt-1 text-xs opacity-80">
+                                {technicalDescriptionMeta?.generatedAt
+                                    ? `Generada ${new Date(technicalDescriptionMeta.generatedAt).toLocaleDateString('es-MX')}`
+                                    : 'Puedes redactarla con IA cuando el presupuesto esté listo'}
+                            </p>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* AI Command Center */}
@@ -1174,9 +1427,18 @@ const Editor = () => {
                     content={technicalDescription}
                     onUpdate={(newContent) => {
                         setTechnicalDescription(newContent);
+                        setTechnicalDescriptionMeta(prev => ({
+                            ...(prev || {}),
+                            generatedAt: prev?.generatedAt || new Date().toISOString(),
+                            generationMode: prev?.generationMode || 'manual',
+                            sourceSignature: prev?.sourceSignature || currentBudgetSignature
+                        }));
                         setHasUnsavedChanges(true);
                     }}
-                    onDelete={() => setTechnicalDescription('')}
+                    onDelete={() => {
+                        setTechnicalDescription('');
+                        setTechnicalDescriptionMeta(null);
+                    }}
                 />
             )}
             {!technicalDescription && (
@@ -1268,25 +1530,53 @@ const Editor = () => {
                             </div>
 
                             {/* Details Grid */}
+                            {itemValidationInsights[item.id]?.warnings?.length > 0 && (
+                                <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${
+                                    itemValidationInsights[item.id].severity === 'error'
+                                        ? 'bg-red-50 border-red-200 text-red-700'
+                                        : 'bg-amber-50 border-amber-200 text-amber-700'
+                                }`}>
+                                    <div className="flex items-center gap-1 font-semibold mb-1">
+                                        <AlertTriangle size={12} />
+                                        <span>Validación contra base maestra</span>
+                                    </div>
+                                    <div>{itemValidationInsights[item.id].warnings[0]}</div>
+                                    {itemValidationInsights[item.id].benchmark && (
+                                        <div className="mt-1 opacity-80">
+                                            Ref: {itemValidationInsights[item.id].benchmark.sourceLabel} | {itemValidationInsights[item.id].benchmark.referenceUnit} | {formatCurrency(itemValidationInsights[item.id].benchmark.referencePrice)}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="col-span-2">
                                     <label className="text-[10px] uppercase text-slate-400 font-bold">Categoría</label>
                                     <select
                                         value={item.category || 'Materiales'}
                                         onChange={(e) => handleUpdateItem(item.id, 'category', e.target.value)}
-                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2 py-1.5 text-sm outline-none"
+                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2 py-1.5 text-sm text-slate-700 dark:text-slate-100 outline-none dark:[color-scheme:dark]"
                                     >
-                                        {['Materiales', 'Mano de Obra', 'Equipos', 'Instalaciones', 'Obra Civil'].map(c => <option key={c}>{c}</option>)}
+                                        {budgetCategories.map(category => (
+                                            <option key={category} value={category} className={selectOptionClassName}>
+                                                {category}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
 
                                 <div>
                                     <label className="text-[10px] uppercase text-slate-400 font-bold">Unidad</label>
-                                    <input
-                                        value={item.unit || ''}
+                                    <select
+                                        value={item.unit || 'pza'}
                                         onChange={(e) => handleUpdateItem(item.id, 'unit', e.target.value)}
-                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2 py-1.5 text-sm outline-none text-center"
-                                    />
+                                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2 py-1.5 text-sm text-center text-slate-700 dark:text-slate-100 outline-none dark:[color-scheme:dark]"
+                                    >
+                                        {budgetUnitOptions.map(unit => (
+                                            <option key={unit.value} value={unit.value} className={selectOptionClassName}>
+                                                {unit.label}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
 
                                 <div>
@@ -1443,19 +1733,53 @@ const Editor = () => {
                                                     catalogData={catalog}
                                                     onSuggestionClick={(price) => handleUpdateItem(item.id, 'unitPrice', price)}
                                                 />
+                                                {itemValidationInsights[item.id]?.warnings?.length > 0 && (
+                                                    <div className={`rounded-lg border px-3 py-2 text-xs ${
+                                                        itemValidationInsights[item.id].severity === 'error'
+                                                            ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300'
+                                                            : 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300'
+                                                    }`}>
+                                                        <div className="flex items-center gap-1 font-semibold mb-1">
+                                                            <AlertTriangle size={12} />
+                                                            <span>Base maestra</span>
+                                                        </div>
+                                                        <div>{itemValidationInsights[item.id].warnings[0]}</div>
+                                                        {itemValidationInsights[item.id].benchmark && (
+                                                            <div className="mt-1 opacity-80">
+                                                                Ref: {itemValidationInsights[item.id].benchmark.referenceCategory} | {itemValidationInsights[item.id].benchmark.referenceUnit} | {formatCurrency(itemValidationInsights[item.id].benchmark.referencePrice)}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         </td>
                                         <td className="p-2">
                                             <select
                                                 value={item.category || 'Materiales'}
                                                 onChange={(e) => handleUpdateItem(item.id, 'category', e.target.value)}
-                                                className="w-full bg-transparent text-xs outline-none cursor-pointer text-slate-700 dark:text-slate-200"
+                                                className="w-full bg-transparent text-xs outline-none cursor-pointer text-slate-700 dark:text-slate-200 dark:[color-scheme:dark]"
                                             >
-                                                {['Materiales', 'Mano de Obra', 'Equipos', 'Instalaciones', 'Obra Civil'].map(c => <option key={c}>{c}</option>)}
+                                                {budgetCategories.map(category => (
+                                                    <option key={category} value={category} className={selectOptionClassName}>
+                                                        {category}
+                                                    </option>
+                                                ))}
                                             </select>
                                             <div className="mt-1"><Badge type={item.category} /></div>
                                         </td>
-                                        <td className="p-2"><input value={item.unit || ''} onChange={(e) => handleUpdateItem(item.id, 'unit', e.target.value)} className="w-full text-center bg-transparent outline-none text-slate-500 dark:text-slate-400" /></td>
+                                        <td className="p-2">
+                                            <select
+                                                value={item.unit || 'pza'}
+                                                onChange={(e) => handleUpdateItem(item.id, 'unit', e.target.value)}
+                                                className="w-full text-center bg-transparent outline-none text-slate-500 dark:text-slate-300 text-xs dark:[color-scheme:dark]"
+                                            >
+                                                {budgetUnitOptions.map(unit => (
+                                                    <option key={unit.value} value={unit.value} className={selectOptionClassName}>
+                                                        {unit.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </td>
                                         <td className="p-2">
                                             <div className="relative flex items-center">
                                                 <input
@@ -1546,10 +1870,10 @@ const Editor = () => {
             </Card>
 
             {/* Footer flotante para Totales */}
-            <div className="sticky bottom-4 z-30 px-4">
+            <div className="sticky bottom-2 sm:bottom-4 z-30 px-2 sm:px-4">
                 <div className="bg-slate-900 text-white p-4 rounded-xl shadow-2xl flex flex-col lg:flex-row justify-between items-center gap-4 max-w-6xl mx-auto">
                     <div className="flex gap-4 text-sm w-full lg:w-auto justify-center lg:justify-start items-center">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 justify-center lg:justify-start w-full">
                             <button
                                 onClick={handleExportPDF}
                                 disabled={items.length === 0}

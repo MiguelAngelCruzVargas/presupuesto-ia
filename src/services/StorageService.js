@@ -8,6 +8,48 @@ import { generateId } from '../utils/helpers';
 const STORAGE_KEY = 'presupuesto_ia_projects';
 
 export class StorageService {
+    static normalizeProject(projectData) {
+        const now = new Date().toISOString();
+        const id = projectData.id || projectData.projectInfo?.id || generateId();
+        const projectInfo = {
+            id,
+            project: projectData.projectInfo?.project || projectData.project || 'Sin Nombre',
+            client: projectData.projectInfo?.client || projectData.client || '',
+            location: projectData.projectInfo?.location || projectData.location || 'México',
+            ...projectData.projectInfo
+        };
+
+        return {
+            ...projectData,
+            id,
+            projectInfo,
+            project: projectInfo.project,
+            client: projectInfo.client,
+            location: projectInfo.location,
+            items: projectData.items || [],
+            lastModified: projectData.lastModified || now,
+            createdAt: projectData.createdAt || now
+        };
+    }
+
+    static toProjectListItem(projectData) {
+        const normalized = this.normalizeProject(projectData);
+        const items = normalized.items || [];
+        const total = items.reduce((sum, item) => {
+            return sum + ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
+        }, 0);
+
+        return {
+            ...normalized,
+            project: normalized.projectInfo?.project || 'Sin Nombre',
+            client: normalized.projectInfo?.client || 'Sin Cliente',
+            type: normalized.projectInfo?.type || 'General',
+            location: normalized.projectInfo?.location || 'México',
+            lastModified: normalized.lastModified,
+            total
+        };
+    }
+
     /**
      * Save a project to local storage
      * @param {Object} projectData - Full project data
@@ -18,12 +60,11 @@ export class StorageService {
             const projects = this.getAllProjects();
             const now = new Date().toISOString();
 
-            const projectToSave = {
+            const projectToSave = this.normalizeProject({
                 ...projectData,
-                id: projectData.id || generateId(),
                 lastModified: now,
                 createdAt: projectData.createdAt || now
-            };
+            });
 
             // Check if exists to update, or add new
             const index = projects.findIndex(p => p.id === projectToSave.id);
@@ -50,11 +91,17 @@ export class StorageService {
             const data = localStorage.getItem(STORAGE_KEY);
             if (!data) return [];
             const projects = JSON.parse(data);
-            return projects.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+            return projects
+                .map(project => this.normalizeProject(project))
+                .sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
         } catch (error) {
             console.error('Error loading projects:', error);
             return [];
         }
+    }
+
+    static listProjects() {
+        return this.getAllProjects().map(project => this.toProjectListItem(project));
     }
 
     /**
@@ -65,6 +112,30 @@ export class StorageService {
     static getProject(id) {
         const projects = this.getAllProjects();
         return projects.find(p => p.id === id) || null;
+    }
+
+    static updateProjectName(id, newName) {
+        if (!id || !newName) {
+            throw new Error('Project ID and new name are required');
+        }
+
+        const projects = this.getAllProjects();
+        const index = projects.findIndex(project => project.id === id);
+        if (index === -1) {
+            throw new Error('Proyecto no encontrado');
+        }
+
+        const project = this.normalizeProject(projects[index]);
+        project.projectInfo = {
+            ...project.projectInfo,
+            project: newName
+        };
+        project.project = newName;
+        project.lastModified = new Date().toISOString();
+        projects[index] = project;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+
+        return project;
     }
 
     /**

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 // Context for managing project state
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from './AuthContext';
@@ -12,6 +12,7 @@ export const useProject = () => useContext(ProjectContext);
 export const ProjectProvider = ({ children }) => {
     const { user, loading: authLoading } = useAuth();
     const [toast, setToast] = useState(null);
+    const lastLoadedUserIdRef = useRef(null);
 
     // --- ESTADOS DEL PROYECTO ---
     const [projectInfo, setProjectInfo] = useState({
@@ -134,7 +135,14 @@ export const ProjectProvider = ({ children }) => {
 
         } catch (error) {
             console.error('Error loading user data:', error);
-            showToast('Error al cargar datos', 'error');
+            // Mensaje amigable para errores de red (ERR_CONNECTION_CLOSED, Failed to fetch)
+            const isNetworkError = !error.message || /fetch|network|connection|closed/i.test(error?.message || '');
+            showToast(
+                isNetworkError
+                    ? 'Error de conexión. Revisa tu internet y que Supabase esté accesible.'
+                    : 'Error al cargar datos',
+                'error'
+            );
         } finally {
             setLoading(false);
         }
@@ -294,17 +302,21 @@ export const ProjectProvider = ({ children }) => {
     };
 
     // --- CARGAR DATOS AL INICIAR ---
+    // Evitar bucle: solo ejecutar carga una vez por user.id; si falla la red no reintentar en cada render
     useEffect(() => {
         if (authLoading) return;
 
-        if (user) {
-            loadUserData();
-        } else {
-            // Si no hay usuario, cargar desde localStorage (modo offline)
+        if (!user) {
+            lastLoadedUserIdRef.current = null;
             loadFromLocalStorage();
+            return;
         }
+
+        if (lastLoadedUserIdRef.current === user.id) return;
+        lastLoadedUserIdRef.current = user.id;
+        loadUserData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user, authLoading]);
+    }, [user?.id, authLoading]);
 
     // --- Auto-timeout para toasts ---
     useEffect(() => {

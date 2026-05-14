@@ -358,14 +358,14 @@ const PDFTemplatesPage = () => {
             {/* Header */}
             <div className="flex justify-between items-center mb-8">
                 <div>
-                    <h2 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent mb-2">
+                    <h2 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 dark:from-slate-100 dark:to-slate-300 bg-clip-text text-transparent mb-2">
                         Plantillas de PDF
                     </h2>
-                    <p className="text-slate-500 text-sm">Personaliza el diseño de tus presupuestos en PDF</p>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">Personaliza membrete, logo, colores y estilo de tus presupuestos en PDF</p>
                 </div>
                 <button
                     onClick={() => handleOpenModal()}
-                    className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-200/50 transition-all hover:scale-105 flex items-center gap-2"
+                    className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-200/50 dark:shadow-blue-950/40 transition-all hover:scale-105 flex items-center gap-2"
                 >
                     <Plus size={20} />
                     Nueva Plantilla
@@ -375,26 +375,29 @@ const PDFTemplatesPage = () => {
             {/* Lista de Plantillas */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {templates.length === 0 ? (
-                    <Card className="col-span-full p-16 text-center bg-gradient-to-br from-slate-50 to-white">
+                    <Card className="col-span-full p-16 text-center bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 border border-slate-200 dark:border-slate-700">
                         <div className="max-w-md mx-auto">
-                            <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-2xl flex items-center justify-center">
-                                <FileText size={40} className="text-blue-600" />
+                            <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/40 dark:to-indigo-900/40 rounded-2xl flex items-center justify-center">
+                                <FileText size={40} className="text-blue-600 dark:text-blue-300" />
                             </div>
-                            <h3 className="text-xl font-bold text-slate-800 mb-2">No hay plantillas creadas</h3>
-                            <p className="text-slate-500 mb-6">Crea tu primera plantilla personalizada para darle un toque único a tus presupuestos</p>
+                            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">No hay plantillas creadas</h3>
+                            <p className="text-slate-500 dark:text-slate-400 mb-3">Crea tu primera plantilla personalizada para darle un toque único a tus presupuestos</p>
+                            <p className="text-sm text-slate-400 dark:text-slate-500 mb-6">
+                                Aqui podras configurar membrete, logo, textos del encabezado y colores del PDF final.
+                            </p>
                             <button
                                 onClick={() => handleOpenModal()}
-                                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-200/50 transition-all hover:scale-105 flex items-center gap-2 mx-auto"
+                                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-200/50 dark:shadow-blue-950/40 transition-all hover:scale-105 flex items-center gap-2 mx-auto"
                             >
                                 <Plus size={20} />
                                 Crear Primera Plantilla
                             </button>
 
-                            <div className="mt-4 pt-4 border-t border-slate-100">
-                                <p className="text-xs text-slate-400 mb-3">¿Prefieres no empezar desde cero?</p>
+                            <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
+                                <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">¿Prefieres no empezar desde cero?</p>
                                 <button
                                     onClick={handleGenerateDefaults}
-                                    className="text-indigo-600 hover:text-indigo-800 text-sm font-bold flex items-center justify-center gap-2 mx-auto hover:underline"
+                                    className="text-indigo-600 dark:text-indigo-300 hover:text-indigo-800 dark:hover:text-indigo-200 text-sm font-bold flex items-center justify-center gap-2 mx-auto hover:underline"
                                 >
                                     <Wand2 size={16} />
                                     Generar Plantillas Automáticas
@@ -430,7 +433,7 @@ const PDFTemplatesPage = () => {
                                         {template.isActive ? (
                                             <button
                                                 onClick={handleDeactivate}
-                                                className="p-2.5 text-orange-600 hover:bg-orange-100 rounded-lg transition-all hover:scale-110 shadow-sm"
+                                                className="p-2.5 text-orange-600 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900/30 rounded-lg transition-all hover:scale-110 shadow-sm"
                                                 title="Desactivar plantilla"
                                             >
                                                 <XCircle size={18} />
@@ -438,7 +441,7 @@ const PDFTemplatesPage = () => {
                                         ) : (
                                             <button
                                                 onClick={() => handleSetActive(template.id)}
-                                                className="p-2.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-all hover:scale-110 shadow-sm"
+                                                className="p-2.5 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-all hover:scale-110 shadow-sm"
                                                 title="Activar plantilla"
                                             >
                                                 <Check size={18} />
@@ -446,14 +449,14 @@ const PDFTemplatesPage = () => {
                                         )}
                                         <button
                                             onClick={() => handleOpenModal(template)}
-                                            className="p-2.5 text-slate-600 hover:bg-slate-200 rounded-lg transition-all hover:scale-110 shadow-sm"
+                                            className="p-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all hover:scale-110 shadow-sm"
                                             title="Editar"
                                         >
                                             <Settings size={18} />
                                         </button>
                                         <button
                                             onClick={() => handleDelete(template.id)}
-                                            className="p-2.5 text-red-600 hover:bg-red-100 rounded-lg transition-all hover:scale-110 shadow-sm"
+                                            className="p-2.5 text-red-600 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-all hover:scale-110 shadow-sm"
                                             title="Eliminar"
                                         >
                                             <Trash2 size={18} />
@@ -822,10 +825,10 @@ const PDFTemplatesPage = () => {
                                             )}
                                         </div>
                                     ) : (
-                                        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:bg-slate-50 transition">
+                                        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 transition">
                                             <Upload size={24} className="text-slate-400 mb-2" />
-                                            <span className="text-sm text-slate-600">Haz clic para subir logo</span>
-                                            <span className="text-xs text-slate-400 mt-1">PNG, JPG (máx. 2MB)</span>
+                                            <span className="text-sm text-slate-600 dark:text-slate-300">Haz clic para subir logo</span>
+                                            <span className="text-xs text-slate-400 dark:text-slate-500 mt-1">PNG, JPG (máx. 2MB)</span>
                                             <input
                                                 type="file"
                                                 accept="image/*"
@@ -840,7 +843,7 @@ const PDFTemplatesPage = () => {
                             {/* Ubicación del Logo */}
                             {previewLogo && (
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-2 flex items-center gap-2">
                                         <Move size={16} />
                                         Ubicación del Logo en el Header
                                     </label>
@@ -850,8 +853,8 @@ const PDFTemplatesPage = () => {
                                                 key={position}
                                                 onClick={() => setFormData({ ...formData, logoPosition: position })}
                                                 className={`p-4 border-2 rounded-lg transition-all flex flex-col items-center gap-2 ${formData.logoPosition === position
-                                                    ? 'border-blue-600 bg-blue-50 text-blue-700'
-                                                    : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                                                    ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                                                    : 'border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500 text-slate-600 dark:text-slate-300'
                                                     }`}
                                             >
                                                 <div className={`w-12 h-12 border-2 rounded flex items-center justify-center ${formData.logoPosition === position
@@ -880,15 +883,15 @@ const PDFTemplatesPage = () => {
                             {/* Tamaño del Logo */}
                             {previewLogo && (
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-200 mb-2 flex items-center gap-2">
                                         <Maximize2 size={16} />
                                         Tamaño del Logo
                                     </label>
                                     <div className="space-y-4">
                                         <div>
                                             <div className="flex justify-between items-center mb-2">
-                                                <span className="text-sm text-slate-600">Ancho: {formData.logoSize.width} mm</span>
-                                                <span className="text-xs text-slate-400">10-200 mm</span>
+                                                <span className="text-sm text-slate-600 dark:text-slate-300">Ancho: {formData.logoSize.width} mm</span>
+                                                <span className="text-xs text-slate-400 dark:text-slate-500">10-200 mm</span>
                                             </div>
                                             <input
                                                 type="range"
@@ -904,8 +907,8 @@ const PDFTemplatesPage = () => {
                                         </div>
                                         <div>
                                             <div className="flex justify-between items-center mb-2">
-                                                <span className="text-sm text-slate-600">Alto: {formData.logoSize.height} mm</span>
-                                                <span className="text-xs text-slate-400">10-200 mm</span>
+                                                <span className="text-sm text-slate-600 dark:text-slate-300">Alto: {formData.logoSize.height} mm</span>
+                                                <span className="text-xs text-slate-400 dark:text-slate-500">10-200 mm</span>
                                             </div>
                                             <input
                                                 type="range"
@@ -1018,13 +1021,13 @@ const PDFTemplatesPage = () => {
                         <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
                             <button
                                 onClick={handleCloseModal}
-                                className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium transition"
+                                className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg font-medium transition"
                             >
                                 Cancelar
                             </button>
                             <button
                                 onClick={handleSave}
-                                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-lg shadow-blue-200 transition flex items-center gap-2"
+                                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-lg shadow-blue-200 dark:shadow-blue-950/40 transition flex items-center gap-2"
                             >
                                 <Save size={18} />
                                 Guardar Plantilla
@@ -1109,7 +1112,8 @@ const PDFTemplatesPage = () => {
                                     profit: calc.profit,
                                     tax: calc.tax,
                                     total: calc.total,
-                                    technicalDescription: 'Este es un ejemplo de vista previa de la plantilla. El presupuesto real utilizará los datos de tu proyecto.'
+                                    technicalDescription: 'Este es un ejemplo de vista previa de la plantilla. El presupuesto real utilizará los datos de tu proyecto.',
+                                    isPreview: true
                                 });
                                 doc.save(`Vista_Previa_${previewTemplate.name.replace(/\s+/g, '_')}.pdf`);
                                 showToast('PDF descargado', 'success');
@@ -1130,4 +1134,3 @@ const PDFTemplatesPage = () => {
 };
 
 export default PDFTemplatesPage;
-

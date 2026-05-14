@@ -7,6 +7,23 @@
 import { supabase } from '../lib/supabaseClient';
 
 export class MarketPriceService {
+    static normalizeText(text) {
+        return String(text || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    static buildSearchTerms(description) {
+        return this.normalizeText(description)
+            .split(' ')
+            .filter(term => term.length >= 4)
+            .slice(0, 5);
+    }
+
     /**
      * Buscar precio de referencia por descripción, categoría y ubicación
      * Prioriza precios oficiales (CDMX Tabulador) sobre otras fuentes
@@ -152,6 +169,79 @@ export class MarketPriceService {
             console.error('Error searching prices:', error);
             return { data: [], count: 0 };
         }
+    }
+
+    static scoreDescriptionMatch(queryDescription, candidateDescription) {
+        const queryTerms = this.buildSearchTerms(queryDescription);
+        const candidateText = this.normalizeText(candidateDescription);
+
+        if (queryTerms.length === 0 || !candidateText) return 0;
+
+        let score = 0;
+        queryTerms.forEach(term => {
+            if (candidateText.includes(term)) {
+                score += term.length > 7 ? 2 : 1;
+            }
+        });
+
+        if (candidateText.includes(this.normalizeText(queryDescription))) {
+            score += 4;
+        }
+
+        return score;
+    }
+
+    static async findBestMatch(description, category, location = 'México') {
+        const exactMatches = await this.findReferencePrice(description, category, location, 10);
+        if (exactMatches.length > 0) {
+            return exactMatches[0];
+        }
+
+        const terms = this.buildSearchTerms(description);
+        for (const term of terms.slice(0, 2)) {
+            const { data } = await this.searchPrices(term, 1, 25);
+            const candidates = (data || [])
+                .filter(item => !category || item.category === category)
+                .map(item => ({
+                    ...item,
+                    fuzzyScore: this.scoreDescriptionMatch(description, item.description)
+                }))
+                .filter(item => item.fuzzyScore > 0)
+                .sort((a, b) => b.fuzzyScore - a.fuzzyScore);
+
+            if (candidates.length > 0) {
+                return candidates[0];
+            }
+        }
+
+        return null;
+    }
+
+    static async getBenchmarkForItem(item, location = 'México') {
+        if (!item?.description) return null;
+
+        const category = item.category || 'Materiales';
+        const bestMatch = await this.findBestMatch(item.description, category, location);
+        if (!bestMatch) return null;
+
+        const marketPrice = parseFloat(bestMatch.base_price);
+        if (Number.isNaN(marketPrice) || marketPrice <= 0) return null;
+
+        const currentPrice = parseFloat(item.unitPrice);
+        const ratio = currentPrice > 0 ? marketPrice / currentPrice : null;
+
+        return {
+            match: bestMatch,
+            referencePrice: marketPrice,
+            referenceUnit: bestMatch.unit,
+            referenceCategory: bestMatch.category,
+            ratioAgainstCurrent: ratio,
+            sourceLabel: bestMatch.source === 'cdmx_tabulador'
+                ? 'Tabulador Oficial CDMX'
+                : bestMatch.source === 'construbase_libre'
+                    ? 'Construbase'
+                    : bestMatch.source || 'Base maestra'
+        };
     }
 
     /**

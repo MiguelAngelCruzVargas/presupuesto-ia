@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { ArrowRight, Info, Sparkles, PieChart, Bot, FolderOpen, TrendingUp, Calendar, DollarSign, FileText, Plus, Clock, BarChart3 } from 'lucide-react';
+import { ArrowRight, Info, Sparkles, PieChart, Bot, FolderOpen, TrendingUp, Calendar, DollarSign, FileText, Plus, Clock, BarChart3, Camera } from 'lucide-react';
+
 import { useNavigate } from 'react-router-dom';
 import Card from '../components/ui/Card';
 import { useProject } from '../context/ProjectContext';
@@ -30,7 +31,7 @@ const Dashboard = () => {
 
     const loadProjectsAndStats = async () => {
         if (!user) return;
-        
+
         setLoadingProjects(true);
         try {
             // Cargar proyectos con sus items
@@ -81,8 +82,8 @@ const Dashboard = () => {
                 totalProjects: projects?.length || 0,
                 totalValue: projectsWithStats.reduce((sum, p) => sum + (p.total || 0), 0),
                 totalItems: projectsWithStats.reduce((sum, p) => sum + (p.itemsCount || 0), 0),
-                avgProjectValue: projectsWithStats.length > 0 
-                    ? projectsWithStats.reduce((sum, p) => sum + (p.total || 0), 0) / projectsWithStats.length 
+                avgProjectValue: projectsWithStats.length > 0
+                    ? projectsWithStats.reduce((sum, p) => sum + (p.total || 0), 0) / projectsWithStats.length
                     : 0,
                 projectsByType: {},
                 recentCount: projectsWithStats.filter(p => {
@@ -166,7 +167,7 @@ const Dashboard = () => {
         const now = new Date();
         const diffTime = Math.abs(now - date);
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
+
         if (diffDays === 0) return 'Hoy';
         if (diffDays === 1) return 'Ayer';
         if (diffDays < 7) return `Hace ${diffDays} días`;
@@ -186,16 +187,23 @@ const Dashboard = () => {
                     <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50 mb-1">Visión General</h1>
                     <p className="text-slate-700 dark:text-slate-200">Panel de Control - Resumen de tus proyectos y estadísticas</p>
                 </div>
-                <div className="flex gap-3">
-                    <button 
+                <div className="flex gap-3 flex-wrap justify-end">
+                    <button
+                        onClick={() => navigate('/reports')}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl font-semibold shadow-lg shadow-indigo-200 dark:shadow-indigo-900/50 transition flex items-center gap-2"
+                    >
+                        <Camera size={18} />
+                        Reportes de Obra
+                    </button>
+                    <button
                         onClick={() => navigate('/editor?new=true')}
                         className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-xl font-semibold shadow-lg shadow-green-200 dark:shadow-green-900/50 transition flex items-center gap-2"
                     >
                         <Plus size={18} />
-                        Nuevo Proyecto
+                        Nuevo Presupuesto
                     </button>
                     {items.length > 0 && (
-                        <button 
+                        <button
                             onClick={() => navigate('/editor')}
                             className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-semibold shadow-lg shadow-blue-200 dark:shadow-blue-900/50 transition flex items-center gap-2"
                         >
@@ -203,6 +211,7 @@ const Dashboard = () => {
                         </button>
                     )}
                 </div>
+
             </div>
 
             {/* Estadísticas Generales */}
@@ -316,7 +325,7 @@ const Dashboard = () => {
                     <FolderOpen size={64} className="mx-auto text-slate-400 dark:text-slate-500 mb-4" />
                     <h3 className="text-xl font-bold text-slate-800 dark:text-slate-50 mb-2">No hay proyecto activo</h3>
                     <p className="text-slate-600 dark:text-slate-200 mb-6">Crea un nuevo proyecto o abre uno existente para comenzar</p>
-                    <button 
+                    <button
                         onClick={() => navigate('/editor?new=true')}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold shadow-lg transition inline-flex items-center gap-2"
                     >
@@ -344,8 +353,8 @@ const Dashboard = () => {
                             </thead>
                             <tbody>
                                 {recentProjects.map((project) => (
-                                    <tr 
-                                        key={project.id} 
+                                    <tr
+                                        key={project.id}
                                         className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition cursor-pointer"
                                         onClick={() => openProject(project.id)}
                                     >
@@ -393,7 +402,7 @@ const Dashboard = () => {
                     <FolderOpen size={64} className="mx-auto text-slate-400 dark:text-slate-500 mb-4" />
                     <h3 className="text-xl font-bold text-slate-800 dark:text-slate-50 mb-2">No tienes proyectos aún</h3>
                     <p className="text-slate-600 dark:text-slate-200 mb-6">Crea tu primer proyecto para comenzar a trabajar</p>
-                    <button 
+                    <button
                         onClick={() => navigate('/editor?new=true')}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold shadow-lg transition inline-flex items-center gap-2"
                     >

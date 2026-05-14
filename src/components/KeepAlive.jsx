@@ -18,27 +18,23 @@ export default function KeepAlive() {
         const SUPABASE_INTERVAL = 24 * 60 * 60 * 1000;
 
         const sendRenderPulse = async () => {
+            // Solo enviar pulso si hay API configurada (producción o backend en 4001); evita ERR_CONNECTION_REFUSED en dev sin servidor
+            const apiBaseUrl = import.meta.env.VITE_API_URL;
+            if (!apiBaseUrl) return;
             try {
-                // Hacemos una petición al Proxy de IA para mantenerlo despierto
-                const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:4001';
-                // Intentamos un endpoint simple o la raíz del API
                 await fetch(`${apiBaseUrl}/api/ai/health`, { mode: 'no-cors' }).catch(() => {
-                    // Si el endpoint /health no existe, al menos el request llegó al servidor
-                    fetch(`${apiBaseUrl}/`, { mode: 'no-cors' }).catch(() => { });
+                    fetch(`${apiBaseUrl}/`, { mode: 'no-cors' }).catch(() => {});
                 });
-                console.log(`[KeepAlive] Pulso a Render enviado - ${new Date().toLocaleTimeString()}`);
-            } catch (err) {
-                // Ignoramos errores de red, lo importante es el intento de conexión
+            } catch {
+                // Silenciar: servidor no disponible
             }
         };
 
         const sendSupabasePulse = async () => {
             try {
-                // Una consulta simple a cualquier tabla (usamos una que sea probable que exista)
                 await supabase.from('projects').select('id').limit(1);
-                console.log(`[KeepAlive] Pulso a Supabase exitoso - ${new Date().toLocaleTimeString()}`);
-            } catch (err) {
-                console.warn('[KeepAlive] Error en pulso Supabase:', err.message);
+            } catch {
+                // Silenciar: conexión o permisos
             }
         };
 

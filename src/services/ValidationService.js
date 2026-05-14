@@ -1,3 +1,5 @@
+import { MarketPriceService } from './MarketPriceService';
+
 /**
  * ValidationService
  * Centralized validation for budget items, projects, and user inputs
@@ -43,6 +45,115 @@ export class ValidationService {
         return {
             valid: errors.length === 0,
             errors
+        };
+    }
+
+    static normalizeUnit(unit) {
+        return String(unit || '')
+            .toLowerCase()
+            .replace(/\s+/g, '')
+            .replace('²', '2')
+            .replace('³', '3');
+    }
+
+    static areUnitsCompatible(unitA, unitB) {
+        const a = this.normalizeUnit(unitA);
+        const b = this.normalizeUnit(unitB);
+        if (!a || !b) return false;
+        if (a === b) return true;
+
+        const groups = [
+            ['m', 'ml'],
+            ['m2', 'm²'],
+            ['m3', 'm³'],
+            ['pza', 'pieza', 'und'],
+            ['lt', 'l'],
+            ['kg', 'kilo'],
+            ['ton', 'tonelada'],
+        ];
+
+        return groups.some(group => group.includes(a) && group.includes(b));
+    }
+
+    static inferCategoryHints(description = '') {
+        const text = String(description).toLowerCase();
+        const hints = [];
+
+        if (/(cable|tablero|contacto|apagador|conduit|luminaria)/.test(text)) hints.push('Instalaciones');
+        if (/(excav|concreto|cimbra|acero|castillo|cadena|muro|block|tabique)/.test(text)) hints.push('Obra Civil');
+        if (/(pintura|loseta|azulejo|yeso|impermeabil)/.test(text)) hints.push('Materiales');
+        if (/(plomero|electricista|albanil|albañil|cuadrilla|jornal)/.test(text)) hints.push('Mano de Obra');
+        if (/(retroexcavadora|vibrador|revolvedora|camion|bote|costal|equipo)/.test(text)) hints.push('Equipos');
+
+        return hints;
+    }
+
+    static async validateItemAgainstBase(item, options = {}) {
+        const location = options.location || 'México';
+        const warnings = [];
+        const suggestions = [];
+        let severity = 'info';
+
+        const basicValidation = this.validateItem(item);
+        if (!basicValidation.valid) {
+            return {
+                severity: 'error',
+                warnings: basicValidation.errors,
+                suggestions,
+                benchmark: null
+            };
+        }
+
+        const categoryHints = this.inferCategoryHints(item.description);
+        if (categoryHints.length > 0 && !categoryHints.includes(item.category)) {
+            warnings.push(`La categoría podría no coincidir. Para esta descripción parece más cercano a: ${categoryHints.join(', ')}.`);
+            severity = 'warning';
+        }
+
+        const benchmark = await MarketPriceService.getBenchmarkForItem(item, location);
+        if (!benchmark) {
+            return {
+                severity,
+                warnings,
+                suggestions,
+                benchmark: null
+            };
+        }
+
+        if (!this.areUnitsCompatible(item.unit, benchmark.referenceUnit)) {
+            warnings.push(`La unidad "${item.unit}" no coincide con la referencia de base maestra "${benchmark.referenceUnit}".`);
+            suggestions.push(`Revisa si esta partida debería estar en ${benchmark.referenceUnit}.`);
+            severity = 'warning';
+        }
+
+        if (item.category && benchmark.referenceCategory && item.category !== benchmark.referenceCategory) {
+            warnings.push(`La referencia más cercana de base maestra está en categoría "${benchmark.referenceCategory}".`);
+            severity = 'warning';
+        }
+
+        const currentPrice = parseFloat(item.unitPrice);
+        if (!Number.isNaN(currentPrice) && currentPrice > 0) {
+            const ratio = currentPrice / benchmark.referencePrice;
+
+            if (ratio >= 2.5) {
+                warnings.push(`El precio está muy arriba de la referencia (${benchmark.sourceLabel}: $${benchmark.referencePrice.toFixed(2)}).`);
+                suggestions.push('Valida si incluye más alcance, indirectos o una unidad distinta.');
+                severity = 'error';
+            } else if (ratio <= 0.4) {
+                warnings.push(`El precio está muy abajo de la referencia (${benchmark.sourceLabel}: $${benchmark.referencePrice.toFixed(2)}).`);
+                suggestions.push('Podría faltar mano de obra, herramienta o el precio estar capturado por otra unidad.');
+                severity = severity === 'error' ? 'error' : 'warning';
+            } else if (ratio >= 1.6 || ratio <= 0.65) {
+                warnings.push(`El precio se desvía de la referencia de base maestra (${benchmark.sourceLabel}: $${benchmark.referencePrice.toFixed(2)}).`);
+                severity = severity === 'error' ? 'error' : 'info';
+            }
+        }
+
+        return {
+            severity,
+            warnings,
+            suggestions,
+            benchmark
         };
     }
 

@@ -34,6 +34,8 @@ import AdminDashboard from './pages/AdminDashboard';
 import AdminRoute from './components/auth/AdminRoute';
 import PriceSearchPage from './pages/PriceSearchPage';
 import PDFEditorPage from './pages/PDFEditorPage';
+import ProjectReportsDashboard from './pages/ProjectReportsDashboard';
+
 
 const App = () => {
     return (
@@ -144,6 +146,16 @@ const App = () => {
                                                 <Route path="/usage" element={
                                                     <ProtectedRoute requireAuth={true}>
                                                         <Layout title="Dashboard de Uso"><UsageDashboard /></Layout>
+                                                    </ProtectedRoute>
+                                                } />
+                                                <Route path="/reports" element={
+                                                    <ProtectedRoute requireAuth={true}>
+                                                        <Layout title="Módulo de Reportes"><ProjectReportsDashboard /></Layout>
+                                                    </ProtectedRoute>
+                                                } />
+                                                <Route path="/reports/photographic/free" element={
+                                                    <ProtectedRoute requireAuth={true}>
+                                                        <Layout title="Reporte Fotográfico"><PhotographicReportPage /></Layout>
                                                     </ProtectedRoute>
                                                 } />
 

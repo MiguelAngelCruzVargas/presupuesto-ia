@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CheckCircle, Info, X, MessageCircle, AlertTriangle } from 'lucide-react';
 import { useError } from '../../context/ErrorContext';
 
 const Toast = ({ message, type, onClose, error = null }) => {
     const [isReporting, setIsReporting] = useState(false);
     const errorContext = useError(); // Usar hook directamente, retorna funciones vacías si no está disponible
+    const hasLoggedRef = useRef(false);
 
     // Si es un error, intentar obtener el último error del contexto si no se pasó uno
     const lastError = errorContext.getLastError ? errorContext.getLastError() : null;
@@ -12,14 +13,15 @@ const Toast = ({ message, type, onClose, error = null }) => {
 
     // Si es un error, registrarlo automáticamente
     useEffect(() => {
-        if (type === 'error' && displayError && errorContext && errorContext.logError) {
+        if (type === 'error' && error && errorContext && errorContext.logError && !hasLoggedRef.current) {
+            hasLoggedRef.current = true;
             errorContext.logError(displayError, {
                 source: 'Toast',
                 message: message,
                 timestamp: new Date().toISOString()
             });
         }
-    }, [type, displayError, message, errorContext]);
+    }, [type, error, displayError, message, errorContext]);
 
     const handleReportError = () => {
         if (!displayError && !lastError) return;
