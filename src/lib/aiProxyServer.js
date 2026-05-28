@@ -1539,6 +1539,20 @@ app.get('/api/ai/usage', (req, res) => {
     res.json(getProxyUsageSummary());
 });
 
+// Servir archivos estáticos del frontend de React (dist/) en producción
+const distPath = path.join(__dirname, '../../dist');
+app.use(express.static(distPath));
+
+// Cualquier otra ruta que no sea de la API debe redirigirse al index.html de React
+app.get('*', (req, res) => {
+    const indexPath = path.join(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        res.status(404).send('Frontend no compilado. Ejecuta "npm run build" primero.');
+    }
+});
+
 const PORT = process.env.PORT || 4001;
 app.listen(PORT, () => {
     console.log('\n🚀 ========================================');
