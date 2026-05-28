@@ -21,11 +21,11 @@ async function loadSentry() {
             Sentry = SentryModule.default || SentryModule;
             initializeSentry();
         } else {
-            console.log('📝 Sentry no está disponible. Para habilitar monitoreo de errores, ejecuta: npm install @sentry/react');
+            // console.log('📝 Sentry no está disponible. Para habilitar monitoreo de errores, ejecuta: npm install @sentry/react');
         }
     } catch (error) {
         // Sentry no está instalado o hubo error - esto es normal
-        console.log('📝 Sentry no está disponible. Para habilitar monitoreo de errores, ejecuta: npm install @sentry/react');
+        // console.log('📝 Sentry no está disponible. Para habilitar monitoreo de errores, ejecuta: npm install @sentry/react');
     }
 }
 
@@ -45,7 +45,7 @@ function initializeSentry() {
     
     // Solo inicializar si hay DSN configurado (producción)
     if (!dsn) {
-        console.log('📝 Sentry no configurado (VITE_SENTRY_DSN no encontrado). Esto es normal en desarrollo.');
+        // console.log('📝 Sentry no configurado (VITE_SENTRY_DSN no encontrado). Esto es normal en desarrollo.');
         return;
     }
 
@@ -128,7 +128,7 @@ function initializeSentry() {
         });
         
         isInitialized = true;
-        console.log('✅ Sentry inicializado correctamente para:', environment);
+        // console.log('✅ Sentry inicializado correctamente para:', environment);
     } catch (error) {
         console.error('❌ Error al inicializar Sentry:', error);
     }

@@ -62,7 +62,7 @@ export function setupGlobalErrorHandlers() {
         };
     }
 
-    console.log('✅ Global error handlers configurados');
+    // console.log('✅ Global error handlers configurados');
 }
 
 /**
