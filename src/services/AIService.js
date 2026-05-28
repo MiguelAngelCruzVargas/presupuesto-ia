@@ -1,5 +1,6 @@
 // Direct AI SDK removed; using backend proxy
 import { BackendAIService } from '../services/BackendAIService';
+import { APP_CONFIG } from '../config/appConfig';
 
 // No local initialization needed; BackendAIService handles authentication
 
@@ -8,11 +9,19 @@ import { BackendAIService } from '../services/BackendAIService';
  * This service acts as a client for the backend proxy.
  */
 export const AIService = {
+    getDefaultProjectType() {
+        return APP_CONFIG.defaultProjectType;
+    },
+
+    getDefaultCountry() {
+        return APP_CONFIG.defaultCountry;
+    },
+
     /**
      * Check if AI is available (proxy should be running)
      * Note: We don't check for API key in frontend anymore - the proxy handles it
      */
-    static isAvailable() {
+    isAvailable() {
         // The proxy handles authentication, so we assume it's available
         // The proxy will return errors if not configured properly
         return true;
@@ -24,7 +33,7 @@ export const AIService = {
      * @param {Array} context - Other items in budget for context
      * @returns {Promise<Array<string>>} - Array of 2-3 description suggestions
      */
-    static async generateDescription(itemData, context = []) {
+    async generateDescription(itemData, context = []) {
         const { code, unit, category, partialDescription } = itemData;
 
         // Build prompt
@@ -32,7 +41,7 @@ export const AIService = {
             ? `\n\nContexto del presupuesto:\n${context.slice(0, 5).map(item => `- ${item.description} (${item.unit})`).join('\n')}`
             : '';
 
-        const prompt = `Eres un experto en presupuestos de construcción en México. \nGenera 3 descripciones profesionales y técnicas para una partida de presupuesto con las siguientes características:\n\n- Código/Clave: ${code || 'No especificado'}\n- Unidad: ${unit || 'No especificada'}\n- Categoría: ${category || 'General'}\n${partialDescription ? `- Descripción parcial: ${partialDescription}` : ''}\n${contextInfo}\n\nRequisitos:\n1. Descripciones técnicas y profesionales\n2. Incluir especificaciones relevantes\n3. Usar terminología de construcción mexicana\n4. Máximo 100 caracteres cada una\n5. Diferentes niveles de detalle (básica, media, detallada)\n\nResponde SOLO con las 3 descripciones separadas por saltos de línea, sin numeración ni texto adicional.`;
+        const prompt = `Eres un experto en presupuestos de construcción en ${this.getDefaultCountry()}. \nGenera 3 descripciones profesionales y técnicas para una partida de presupuesto con las siguientes características:\n\n- Código/Clave: ${code || 'No especificado'}\n- Unidad: ${unit || 'No especificada'}\n- Categoría: ${category || this.getDefaultProjectType()}\n${partialDescription ? `- Descripción parcial: ${partialDescription}` : ''}\n${contextInfo}\n\nRequisitos:\n1. Descripciones técnicas y profesionales\n2. Incluir especificaciones relevantes\n3. Usar terminología de construcción mexicana\n4. Máximo 100 caracteres cada una\n5. Diferentes niveles de detalle (básica, media, detallada)\n\nResponde SOLO con las 3 descripciones separadas por saltos de línea, sin numeración ni texto adicional.`;
 
         try {
             const result = await BackendAIService.sendPrompt(prompt);
@@ -55,7 +64,7 @@ export const AIService = {
      * @param {Array} catalogData - Catalog items for reference
      * @returns {Promise<Object>} - Price suggestion with range
      */
-    static async suggestPrice(itemData, catalogData = []) {
+    async suggestPrice(itemData, catalogData = []) {
         const { description, unit, category } = itemData;
 
         // Find similar items in catalog
@@ -101,7 +110,7 @@ export const AIService = {
             .map(item => `- ${item.description}: $${(item.unitPrice || item.price || 0).toFixed(2)} ${item.unit}`)
             .join('\n');
 
-        const prompt = `Eres un experto en costos de construcción en México.\n\nBasándote en los siguientes precios de catálogo para partidas similares:\n\n${catalogInfo}\n\nSugiere un precio razonable para:\n- Descripción: ${description}\n- Unidad: ${unit}\n- Categoría: ${category || 'General'}\n\nEstadísticas del catálogo:\n- Precio promedio: $${avg.toFixed(2)}\n-- Rango: $${min.toFixed(2)} - $${max.toFixed(2)}\n\nResponde SOLO con un número (el precio sugerido en pesos mexicanos), sin símbolos ni texto adicional.`;
+        const prompt = `Eres un experto en costos de construcción en ${this.getDefaultCountry()}.\n\nBasándote en los siguientes precios de catálogo para partidas similares:\n\n${catalogInfo}\n\nSugiere un precio razonable para:\n- Descripción: ${description}\n- Unidad: ${unit}\n- Categoría: ${category || this.getDefaultProjectType()}\n\nEstadísticas del catálogo:\n- Precio promedio: $${avg.toFixed(2)}\n-- Rango: $${min.toFixed(2)} - $${max.toFixed(2)}\n\nResponde SOLO con un número (el precio sugerido en pesos mexicanos), sin símbolos ni texto adicional.`;
 
         try {
             const result = await BackendAIService.sendPrompt(prompt);
@@ -133,8 +142,8 @@ export const AIService = {
      * @param {Object} projectInfo - Project information
      * @returns {Promise<string>} - Analysis text
      */
-    static async analyzeBudget(items, projectInfo) {
-        const prompt = `Analiza este presupuesto de construcción:\n\n${JSON.stringify(items, null, 2)}\n\nTipo de proyecto: ${projectInfo.type || 'General'}\n\nBusca errores, precios inusuales, omisiones comunes y proporciona recomendaciones.`;
+    async analyzeBudget(items, projectInfo) {
+        const prompt = `Analiza este presupuesto de construcción:\n\n${JSON.stringify(items, null, 2)}\n\nTipo de proyecto: ${projectInfo.type || this.getDefaultProjectType()}\n\nBusca errores, precios inusuales, omisiones comunes y proporciona recomendaciones.`;
 
         const systemInstruction = `Eres "Doctor Obra", un experto auditor de presupuestos de construcción. Analiza presupuestos buscando errores, precios anómalos, omisiones y proporciona recomendaciones profesionales. Responde en HTML simple con formato claro.`;
 

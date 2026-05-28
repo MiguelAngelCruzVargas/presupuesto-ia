@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useAuth } from './AuthContext';
 import { generateId } from '../utils/helpers';
 import { CalculationsService } from '../services/CalculationsService';
+import { APP_CONFIG, createDefaultProjectInfo } from '../config/appConfig';
 
 const ProjectContext = createContext();
 
@@ -15,18 +16,7 @@ export const ProjectProvider = ({ children }) => {
     const lastLoadedUserIdRef = useRef(null);
 
     // --- ESTADOS DEL PROYECTO ---
-    const [projectInfo, setProjectInfo] = useState({
-        id: generateId(),
-        client: '',
-        project: 'Presupuesto Nuevo',
-        date: new Date().toISOString().split('T')[0],
-        currency: 'MXN',
-        taxRate: 16,
-        type: 'General',
-        indirect_percentage: 0,
-        profit_percentage: 0,
-        location: 'México'
-    });
+    const [projectInfo, setProjectInfo] = useState(() => createDefaultProjectInfo({ id: generateId() }));
 
     const [items, setItems] = useState([]);
     const [savedBudgets, setSavedBudgets] = useState([]);
@@ -149,7 +139,7 @@ export const ProjectProvider = ({ children }) => {
     };
 
     const loadFromLocalStorage = () => {
-        const saved = localStorage.getItem('presugenius_budgets');
+        const saved = localStorage.getItem(APP_CONFIG.localBudgetStorageKey);
         if (saved) {
             try {
                 setSavedBudgets(JSON.parse(saved));
@@ -159,7 +149,7 @@ export const ProjectProvider = ({ children }) => {
         }
 
         // Cargar catálogo del localStorage o usar default
-        const savedCatalog = localStorage.getItem('presugenius_catalog');
+        const savedCatalog = localStorage.getItem(APP_CONFIG.localCatalogStorageKey);
         if (savedCatalog) {
             try {
                 setCatalog(JSON.parse(savedCatalog));
@@ -218,7 +208,7 @@ export const ProjectProvider = ({ children }) => {
                 // Guardar en LocalStorage
                 const newCatalog = [newItem, ...catalog];
                 setCatalog(newCatalog);
-                localStorage.setItem('presugenius_catalog', JSON.stringify(newCatalog));
+                localStorage.setItem(APP_CONFIG.localCatalogStorageKey, JSON.stringify(newCatalog));
             }
             showToast('Concepto agregado al catálogo', 'success');
             return true;
@@ -250,7 +240,7 @@ export const ProjectProvider = ({ children }) => {
             setCatalog(newCatalog);
 
             if (!user) {
-                localStorage.setItem('presugenius_catalog', JSON.stringify(newCatalog));
+                localStorage.setItem(APP_CONFIG.localCatalogStorageKey, JSON.stringify(newCatalog));
             }
 
             showToast('Concepto eliminado del catálogo');
@@ -285,7 +275,7 @@ export const ProjectProvider = ({ children }) => {
                 if (error) throw error;
             } else {
                 // Save to LocalStorage
-                localStorage.setItem('presugenius_catalog', JSON.stringify(updatedItems));
+                localStorage.setItem(APP_CONFIG.localCatalogStorageKey, JSON.stringify(updatedItems));
             }
 
             setCatalog(updatedItems);
@@ -442,7 +432,7 @@ export const ProjectProvider = ({ children }) => {
                 }
 
                 setSavedBudgets(newSaved);
-                localStorage.setItem('presugenius_budgets', JSON.stringify(newSaved));
+                localStorage.setItem(APP_CONFIG.localBudgetStorageKey, JSON.stringify(newSaved));
                 showToast('Proyecto guardado localmente', 'success');
             }
         } catch (error) {
@@ -459,13 +449,14 @@ export const ProjectProvider = ({ children }) => {
             id: budget.id,
             client: budget.client,
             project: budget.name || budget.project,
-            date: budget.date || new Date().toISOString().split('T')[0],
-            currency: budget.currency,
-            taxRate: budget.tax_rate || budget.taxRate,
-            type: budget.type,
-            indirect_percentage: budget.indirect_percentage || 0,
-            profit_percentage: budget.profit_percentage || 0
-        });
+                date: budget.date || projectInfo.date || createDefaultProjectInfo().date,
+                currency: budget.currency,
+                taxRate: budget.tax_rate || budget.taxRate,
+                type: budget.type,
+                indirect_percentage: budget.indirect_percentage || APP_CONFIG.defaultIndirectPercentage,
+                profit_percentage: budget.profit_percentage || APP_CONFIG.defaultProfitPercentage,
+                location: budget.location || APP_CONFIG.defaultCountry
+            });
         setItems(budget.items || []);
         showToast(`Proyecto "${budget.name || budget.project}" cargado`);
     };
@@ -488,7 +479,7 @@ export const ProjectProvider = ({ children }) => {
                 // Eliminar de localStorage
                 const newSaved = savedBudgets.filter(b => b.id !== id);
                 setSavedBudgets(newSaved);
-                localStorage.setItem('presugenius_budgets', JSON.stringify(newSaved));
+                localStorage.setItem(APP_CONFIG.localBudgetStorageKey, JSON.stringify(newSaved));
                 showToast('Proyecto eliminado');
             }
         } catch (error) {
@@ -502,17 +493,7 @@ export const ProjectProvider = ({ children }) => {
 
     // --- NUEVO PROYECTO ---
     const newProject = () => {
-        setProjectInfo({
-            id: generateId(),
-            client: '',
-            project: 'Presupuesto Nuevo',
-            date: new Date().toISOString().split('T')[0],
-            currency: 'MXN',
-            taxRate: 16,
-            type: 'General',
-            indirect_percentage: 0,
-            profit_percentage: 0
-        });
+        setProjectInfo(createDefaultProjectInfo({ id: generateId() }));
         setItems([]);
         showToast('Nuevo proyecto creado');
     };

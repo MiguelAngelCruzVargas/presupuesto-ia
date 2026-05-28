@@ -1,5 +1,7 @@
-export const formatCurrency = (amount, currency = 'MXN') => {
-    return new Intl.NumberFormat('es-MX', {
+import { APP_CONFIG } from '../config/appConfig';
+
+export const formatCurrency = (amount, currency = APP_CONFIG.defaultCurrency) => {
+    return new Intl.NumberFormat(APP_CONFIG.locale, {
         style: 'currency',
         currency: currency,
         minimumFractionDigits: 2

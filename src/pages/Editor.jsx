@@ -29,6 +29,7 @@ import BudgetAnalysisModal from '../components/budget/BudgetAnalysisModal';
 import ShareProjectModal from '../components/sharing/ShareProjectModal';
 import TechnicalDescriptionViewer from '../components/budget/TechnicalDescriptionViewer';
 import CostConceptsModal from '../components/budget/CostConceptsModal';
+import { APP_CONFIG, createDefaultProjectInfo } from '../config/appConfig';
 
 import ConfirmModal from '../components/ui/ConfirmModal';
 
@@ -123,6 +124,14 @@ const Editor = () => {
         limit: 0
     });
 
+    const normalizeLoadedProjectInfo = React.useCallback((rawProjectInfo = {}) => (
+        createDefaultProjectInfo({
+            id: rawProjectInfo?.id || generateId(),
+            ...rawProjectInfo,
+            taxRate: rawProjectInfo?.taxRate ?? APP_CONFIG.defaultTaxRate
+        })
+    ), []);
+
     // Auto-load project from URL
     React.useEffect(() => {
         if (id && id !== projectInfo.id && !isDemoMode) {
@@ -131,18 +140,7 @@ const Editor = () => {
                     const fullData = await ProjectPersistenceService.loadProjectFromUrl(id);
                     if (fullData) {
                         // Normalizar projectInfo para asegurar que todos los campos tengan valores por defecto
-                        const normalizedProjectInfo = {
-                            id: fullData.projectInfo?.id || generateId(),
-                            client: fullData.projectInfo?.client || '',
-                            project: fullData.projectInfo?.project || 'Presupuesto Nuevo',
-                            date: fullData.projectInfo?.date || new Date().toISOString().split('T')[0],
-                            currency: fullData.projectInfo?.currency || 'MXN',
-                            taxRate: fullData.projectInfo?.taxRate ?? 16,
-                            type: fullData.projectInfo?.type || 'General',
-                            indirect_percentage: fullData.projectInfo?.indirect_percentage ?? 0,
-                            profit_percentage: fullData.projectInfo?.profit_percentage ?? 0,
-                            location: fullData.projectInfo?.location || 'México'
-                        };
+                        const normalizedProjectInfo = normalizeLoadedProjectInfo(fullData.projectInfo);
                         setProjectInfo(normalizedProjectInfo);
                         setItems(fullData.items || []);
                         setMaterialList(fullData.materialList || []);
@@ -172,7 +170,7 @@ const Editor = () => {
             };
             loadProjectFromUrl();
         }
-    }, [id, projectInfo.id, setProjectInfo, setItems, showToast, isDemoMode, navigate]);
+    }, [id, projectInfo.id, setProjectInfo, setItems, showToast, isDemoMode, navigate, normalizeLoadedProjectInfo]);
 
     // Check for pending PDF import from PDFEditorModal
     React.useEffect(() => {
@@ -227,18 +225,7 @@ const Editor = () => {
     const closeConfirmModal = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
 
     const resetEditorState = React.useCallback(() => {
-        const freshProjectInfo = {
-            id: generateId(),
-            client: '',
-            project: 'Presupuesto Nuevo',
-            date: new Date().toISOString().split('T')[0],
-            currency: 'MXN',
-            taxRate: 16,
-            type: 'General',
-            indirect_percentage: 0,
-            profit_percentage: 0,
-            location: 'México'
-        };
+        const freshProjectInfo = createDefaultProjectInfo({ id: generateId() });
 
         setProjectInfo(freshProjectInfo);
         setItems([]);
@@ -417,7 +404,7 @@ const Editor = () => {
         let cancelled = false;
         const timeoutId = setTimeout(async () => {
             try {
-                const location = projectInfo.location || 'México';
+                const location = projectInfo.location || APP_CONFIG.defaultCountry;
                 const insightsEntries = await Promise.all(
                     items.map(async (item) => {
                         const insight = await ValidationService.validateItemAgainstBase(item, { location });
@@ -528,18 +515,7 @@ const Editor = () => {
                     const fullData = await ProjectPersistenceService.loadProject(project.id);
                     if (fullData) {
                         // Normalizar projectInfo para asegurar que todos los campos tengan valores por defecto
-                        const normalizedProjectInfo = {
-                            id: fullData.projectInfo?.id || generateId(),
-                            client: fullData.projectInfo?.client || '',
-                            project: fullData.projectInfo?.project || 'Presupuesto Nuevo',
-                            date: fullData.projectInfo?.date || new Date().toISOString().split('T')[0],
-                            currency: fullData.projectInfo?.currency || 'MXN',
-                            taxRate: fullData.projectInfo?.taxRate ?? 16,
-                            type: fullData.projectInfo?.type || 'General',
-                            indirect_percentage: fullData.projectInfo?.indirect_percentage ?? 0,
-                            profit_percentage: fullData.projectInfo?.profit_percentage ?? 0,
-                            location: fullData.projectInfo?.location || 'México'
-                        };
+                        const normalizedProjectInfo = normalizeLoadedProjectInfo(fullData.projectInfo);
                         setProjectInfo(normalizedProjectInfo);
                         setItems(fullData.items || []);
                         setScheduleData(fullData.scheduleData || null);
@@ -1344,7 +1320,7 @@ const Editor = () => {
                             </p>
                             <p className="mt-1 text-xs opacity-80">
                                 {technicalDescriptionMeta?.generatedAt
-                                    ? `Generada ${new Date(technicalDescriptionMeta.generatedAt).toLocaleDateString('es-MX')}`
+                                    ? `Generada ${new Date(technicalDescriptionMeta.generatedAt).toLocaleDateString(APP_CONFIG.locale)}`
                                     : 'Puedes redactarla con IA cuando el presupuesto esté listo'}
                             </p>
                         </div>

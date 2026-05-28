@@ -1,4 +1,5 @@
 import { MarketPriceService } from './MarketPriceService';
+import { APP_CONFIG } from '../config/appConfig';
 
 /**
  * ValidationService
@@ -89,7 +90,7 @@ export class ValidationService {
     }
 
     static async validateItemAgainstBase(item, options = {}) {
-        const location = options.location || 'México';
+        const location = options.location || APP_CONFIG.defaultCountry;
         const warnings = [];
         const suggestions = [];
         let severity = 'info';

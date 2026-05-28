@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Minimize2, Save, Move, Link as LinkIcon, X, Info, AlertTriangle, Wrench, Package } from 'lucide-react';
+import { APP_CONFIG } from '../../config/appConfig';
 
 // Helper para obtener días laborables entre dos fechas
 const getWorkingDays = (start, end, workDays) => {
@@ -357,7 +358,7 @@ const GanttChart = ({
                                         const dayWidth = containerWidth / totalDays;
                                         xPos = daysSinceStart * dayWidth;
                                         cellWidth = dayWidth;
-                                        label = date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+                                        label = date.toLocaleDateString(APP_CONFIG.locale, { day: '2-digit', month: 'short' });
                                     } else if (viewMode === 'weeks') {
                                         const weeksSinceStart = Math.ceil((date - timelineStart) / (7 * 24 * 60 * 60 * 1000));
                                         const weekWidth = containerWidth / Math.ceil(totalDays / 7);
@@ -371,7 +372,7 @@ const GanttChart = ({
                                         const monthWidth = containerWidth / Math.ceil(totalDays / 30);
                                         xPos = monthsSinceStart * monthWidth;
                                         cellWidth = monthWidth;
-                                        label = date.toLocaleDateString('es-MX', { month: 'short', year: '2-digit' });
+                                        label = date.toLocaleDateString(APP_CONFIG.locale, { month: 'short', year: '2-digit' });
                                     }
                                     
                                     return (
@@ -422,7 +423,7 @@ const GanttChart = ({
                                                 )}
                                             </div>
                                             <div className="text-[9px] text-slate-500 mt-0 truncate leading-tight">
-                                                {task.start.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })} - {task.end.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+                                                {task.start.toLocaleDateString(APP_CONFIG.locale, { day: '2-digit', month: 'short' })} - {task.end.toLocaleDateString(APP_CONFIG.locale, { day: '2-digit', month: 'short' })}
                                             </div>
                                         </div>
                                         <Move size={10} className="text-slate-400 shrink-0 ml-0.5" />
@@ -562,7 +563,7 @@ const GanttChart = ({
                                     <div className="bg-slate-50 p-3 rounded-lg">
                                         <div className="text-xs font-bold text-slate-500 uppercase mb-1">Fecha Inicio</div>
                                         <div className="text-sm font-medium text-slate-800">
-                                            {selectedTask.start.toLocaleDateString('es-MX', { 
+                                            {selectedTask.start.toLocaleDateString(APP_CONFIG.locale, { 
                                                 weekday: 'long', 
                                                 year: 'numeric', 
                                                 month: 'long', 
@@ -573,7 +574,7 @@ const GanttChart = ({
                                     <div className="bg-slate-50 p-3 rounded-lg">
                                         <div className="text-xs font-bold text-slate-500 uppercase mb-1">Fecha Fin</div>
                                         <div className="text-sm font-medium text-slate-800">
-                                            {selectedTask.end.toLocaleDateString('es-MX', { 
+                                            {selectedTask.end.toLocaleDateString(APP_CONFIG.locale, { 
                                                 weekday: 'long', 
                                                 year: 'numeric', 
                                                 month: 'long', 

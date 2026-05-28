@@ -5,8 +5,13 @@
  */
 
 import { supabase } from '../lib/supabaseClient';
+import { APP_CONFIG } from '../config/appConfig';
 
 export class MarketPriceService {
+    static getDefaultCountry() {
+        return APP_CONFIG.defaultCountry;
+    }
+
     static normalizeText(text) {
         return String(text || '')
             .toLowerCase()
@@ -33,7 +38,7 @@ export class MarketPriceService {
      * @param {number} limit - Máximo de resultados
      * @returns {Promise<Array>} - Array de precios de referencia (ordenados por prioridad)
      */
-    static async findReferencePrice(description, category, location = 'México', limit = 5) {
+    static async findReferencePrice(description, category, location = APP_CONFIG.defaultCountry, limit = 5) {
         try {
             if (!description || !category) {
                 return [];
@@ -54,7 +59,7 @@ export class MarketPriceService {
             if (isCDMX) {
                 locationConditions.push('location.ilike.%CDMX%');
                 locationConditions.push('location.ilike.%Ciudad de México%');
-                locationConditions.push('location.eq.México');
+                locationConditions.push(`location.eq.${this.getDefaultCountry()}`);
             } else {
                 // Simplificar la ubicación para evitar errores con comas en Supabase
                 const simpleLocation = location.split(',')[0].trim();
@@ -62,7 +67,7 @@ export class MarketPriceService {
 
                 // Usar comillas para manejar espacios y caracteres especiales
                 locationConditions.push(`location.ilike."${searchLocation}"`);
-                locationConditions.push('location.eq.México');
+                locationConditions.push(`location.eq.${this.getDefaultCountry()}`);
             }
             query = query.or(locationConditions.join(','));
 
@@ -76,7 +81,7 @@ export class MarketPriceService {
                     .select('*')
                     .eq('category', category)
                     .eq('is_active', true)
-                    .eq('location', 'México')
+                    .eq('location', this.getDefaultCountry())
                     .limit(limit);
 
                 if (fallbackError) throw fallbackError;
@@ -191,7 +196,7 @@ export class MarketPriceService {
         return score;
     }
 
-    static async findBestMatch(description, category, location = 'México') {
+    static async findBestMatch(description, category, location = APP_CONFIG.defaultCountry) {
         const exactMatches = await this.findReferencePrice(description, category, location, 10);
         if (exactMatches.length > 0) {
             return exactMatches[0];
@@ -217,7 +222,7 @@ export class MarketPriceService {
         return null;
     }
 
-    static async getBenchmarkForItem(item, location = 'México') {
+    static async getBenchmarkForItem(item, location = APP_CONFIG.defaultCountry) {
         if (!item?.description) return null;
 
         const category = item.category || 'Materiales';
@@ -251,7 +256,7 @@ export class MarketPriceService {
      * @param {number} limit - Máximo de resultados
      * @returns { Promise < Array >} - Array de precios de referencia
      */
-    static async getPricesByCategory(category, location = 'México', limit = 50) {
+    static async getPricesByCategory(category, location = APP_CONFIG.defaultCountry, limit = 50) {
         try {
             const officialSources = ['cdmx_tabulador'];
             const isCDMX = location && (location.includes('CDMX') || location.includes('Ciudad de México'));
@@ -267,7 +272,7 @@ export class MarketPriceService {
             if (isCDMX) {
                 locationConditions.push('location.ilike.%CDMX%');
                 locationConditions.push('location.ilike.%Ciudad de México%');
-                locationConditions.push('location.eq.México');
+                locationConditions.push(`location.eq.${this.getDefaultCountry()}`);
             } else {
                 // Simplificar la ubicación para evitar errores con comas en Supabase
                 // Ej: "Loma Bonita, Oaxaca" -> "Loma Bonita"
@@ -276,7 +281,7 @@ export class MarketPriceService {
 
                 // Usar comillas para manejar espacios y caracteres especiales
                 locationConditions.push(`location.ilike."${searchLocation}"`);
-                locationConditions.push('location.eq.México');
+                locationConditions.push(`location.eq.${this.getDefaultCountry()}`);
             }
 
             query = query.or(locationConditions.join(','));
@@ -315,7 +320,7 @@ export class MarketPriceService {
      * @param {string} location - Ubicación
      * @returns {Promise<number|null>} - Precio promedio o null
      */
-    static async getAveragePriceByCategory(category, location = 'México') {
+    static async getAveragePriceByCategory(category, location = APP_CONFIG.defaultCountry) {
         try {
             const prices = await this.getPricesByCategory(category, location, 100);
 
@@ -359,7 +364,7 @@ export class MarketPriceService {
                 description,
                 unit,
                 category,
-                location: location || 'México',
+                location: location || this.getDefaultCountry(),
                 base_price: parseFloat(base_price),
                 price_range: price_range || null,
                 source: source || 'manual',

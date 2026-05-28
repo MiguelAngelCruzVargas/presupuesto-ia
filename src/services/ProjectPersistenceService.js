@@ -7,12 +7,13 @@
 import SupabaseService from './SupabaseService';
 import StorageService from './StorageService';
 import { supabase } from '../lib/supabaseClient';
+import { APP_CONFIG, createDefaultProjectInfo, getTodayString } from '../config/appConfig';
 
 export class ProjectPersistenceService {
     static PROJECT_SCHEMA_VERSION = 2;
 
     static getTodayString() {
-        return new Date().toISOString().split('T')[0];
+        return getTodayString();
     }
 
     static buildBudgetSignature(items = [], projectInfo = {}) {
@@ -28,7 +29,7 @@ export class ProjectPersistenceService {
             project: String(projectInfo.project || '').trim().toLowerCase(),
             client: String(projectInfo.client || '').trim().toLowerCase(),
             type: String(projectInfo.type || 'general').trim().toLowerCase(),
-            location: String(projectInfo.location || 'méxico').trim().toLowerCase(),
+            location: String(projectInfo.location || APP_CONFIG.defaultCountry).trim().toLowerCase(),
             items: compactItems
         });
     }
@@ -180,19 +181,12 @@ export class ProjectPersistenceService {
 
     static ensureProjectStructure(projectData = {}) {
         const normalizedDate = projectData.projectInfo?.date || this.getTodayString();
-        const normalizedProjectInfo = {
+        const normalizedProjectInfo = createDefaultProjectInfo({
             id: projectData.id || projectData.projectInfo?.id,
-            client: '',
             project: 'Proyecto sin nombre',
             date: normalizedDate,
-            currency: 'MXN',
-            taxRate: 16,
-            type: 'General',
-            indirect_percentage: 0,
-            profit_percentage: 0,
-            location: 'México',
             ...projectData.projectInfo
-        };
+        });
 
         const scheduleData = this.normalizeScheduleData(projectData.scheduleData, normalizedDate);
         const phasesCount = Array.isArray(scheduleData?.phases) ? scheduleData.phases.length : 0;

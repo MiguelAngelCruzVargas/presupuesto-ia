@@ -914,14 +914,29 @@ app.post('/api/ai/extract-pdf', upload.single('file'), async (req, res) => {
         // 1. Leer y extraer texto del PDF
         const dataBuffer = fs.readFileSync(req.file.path);
 
-        let pdfText;
+        let pdfText = '';
         try {
-            // ✅ CORRECCIÓN: Usar la clase pdfParse con Uint8Array y llamar a getText()
-            // La librería instalada (mehmet-kozan/pdf-parse) requiere Uint8Array, no Buffer directo
+            // La librería instalada devuelve un objeto con la propiedad `text`.
             const uint8Array = new Uint8Array(dataBuffer);
             const instance = new pdfParse(uint8Array);
+            const parseResult = await instance.getText();
 
-            pdfText = await instance.getText();
+            if (typeof parseResult === 'string') {
+                pdfText = parseResult;
+            } else if (parseResult && typeof parseResult.text === 'string') {
+                pdfText = parseResult.text;
+            } else if (parseResult && Array.isArray(parseResult.pages)) {
+                pdfText = parseResult.pages
+                    .map(page => {
+                        if (typeof page === 'string') return page;
+                        if (page && typeof page.text === 'string') return page.text;
+                        return '';
+                    })
+                    .filter(Boolean)
+                    .join('\n');
+            }
+
+            pdfText = String(pdfText || '').trim();
 
             console.log('--- EXTRACTED TEXT PREVIEW (first 800 chars) ---');
             console.log(pdfText ? pdfText.substring(0, 800) : 'NO TEXT EXTRACTED');
@@ -1056,9 +1071,9 @@ app.post('/api/ai/extract-pdf', upload.single('file'), async (req, res) => {
 
         let currentUrl = endpointUsed;
         if (providerUsed === PROVIDERS.GEMINI) {
-            currentUrl = `${endpointUsed}?key = ${apiKey} `;
+            currentUrl = `${endpointUsed}?key=${apiKey}`;
         } else {
-            fetchOptions.headers['Authorization'] = `Bearer ${apiKey} `;
+            fetchOptions.headers['Authorization'] = `Bearer ${apiKey}`;
         }
 
         console.log('Calling AI for extraction...');
@@ -1105,7 +1120,38 @@ app.post('/api/ai/extract-pdf', upload.single('file'), async (req, res) => {
         }
 
         // Validar y normalizar estructura
-        const projectInfo = result.projectInfo || {};
+        const normalizeUnit = (unit = '') => {
+            const normalized = String(unit || '').trim().toLowerCase();
+            const unitMap = {
+                'm²': 'm2',
+                'm2': 'm2',
+                'm³': 'm3',
+                'm3': 'm3',
+                'pieza': 'pza',
+                'piezas': 'pza',
+                'metro lineal': 'ml',
+                'metros lineales': 'ml'
+            };
+            return unitMap[normalized] || normalized || 'pza';
+        };
+
+        const normalizeNumber = (value, fallback = 0) => {
+            if (typeof value === 'number' && Number.isFinite(value)) return value;
+            const cleaned = String(value ?? '')
+                .replace(/[^\d.,-]/g, '')
+                .replace(/,/g, '');
+            const parsed = Number.parseFloat(cleaned);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        };
+
+        const projectInfo = {
+            project: result.projectInfo?.project || 'Presupuesto Importado',
+            client: result.projectInfo?.client || '',
+            location: result.projectInfo?.location || '',
+            taxRate: normalizeNumber(result.projectInfo?.taxRate, 16),
+            indirect_percentage: normalizeNumber(result.projectInfo?.indirect_percentage, 0),
+            profit_percentage: normalizeNumber(result.projectInfo?.profit_percentage, 0)
+        };
         let items = [];
 
         if (Array.isArray(result.items)) {
@@ -1117,7 +1163,22 @@ app.post('/api/ai/extract-pdf', upload.single('file'), async (req, res) => {
             items = result.items;
         }
 
-        const totals = result.totals || {};
+        items = items
+            .map((item, index) => ({
+                description: String(item?.description || `Concepto ${index + 1}`).trim(),
+                unit: normalizeUnit(item?.unit),
+                quantity: normalizeNumber(item?.quantity, 0),
+                unitPrice: normalizeNumber(item?.unitPrice, 0),
+                category: String(item?.category || 'Materiales').trim()
+            }))
+            .filter(item => item.description);
+
+        const computedSubtotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+        const totals = {
+            subtotal: normalizeNumber(result.totals?.subtotal, computedSubtotal),
+            tax: normalizeNumber(result.totals?.tax, computedSubtotal * (projectInfo.taxRate / 100)),
+            total: normalizeNumber(result.totals?.total, computedSubtotal * (1 + (projectInfo.taxRate / 100)))
+        };
 
         console.log(`✅ Extraction successful: ${items.length} items found`);
         console.log(`Project: ${projectInfo.project || 'N/A'}`);

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import { BackendAIService } from '../services/BackendAIService';
+import { APP_CONFIG } from '../config/appConfig';
 
 const providerLabels = {
     gemini: 'Gemini',
@@ -44,7 +45,7 @@ const functionLabels = {
 
 const formatDateTime = (value) => {
     if (!value) return 'Sin uso reciente';
-    return new Date(value).toLocaleString('es-MX', {
+    return new Date(value).toLocaleString(APP_CONFIG.locale, {
         day: '2-digit',
         month: 'short',
         hour: '2-digit',
@@ -450,7 +451,7 @@ const UsageDashboard = () => {
                     <div>
                         <h3 className="font-bold text-slate-900 dark:text-slate-50">Resumen del periodo</h3>
                         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                            Vista correspondiente a {new Date().toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}.
+                            Vista correspondiente a {new Date().toLocaleDateString(APP_CONFIG.locale, { month: 'long', year: 'numeric' })}.
                         </p>
                     </div>
                     <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">

@@ -1,9 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-
-// 1 Hora en milisegundos
-const INACTIVITY_LIMIT_MS = 60 * 60 * 1000;
+import { APP_CONFIG } from '../../config/appConfig';
 
 const InactivityHandler = () => {
     const { user, signOut } = useAuth();
@@ -24,7 +22,7 @@ const InactivityHandler = () => {
             clearTimeout(timerRef.current);
         }
         if (user) {
-            timerRef.current = setTimeout(handleLogout, INACTIVITY_LIMIT_MS);
+            timerRef.current = setTimeout(handleLogout, APP_CONFIG.inactivityLimitMs);
         }
     }, [user, handleLogout]);
 
@@ -42,7 +40,7 @@ const InactivityHandler = () => {
             const now = Date.now();
             // Solo reiniciar si ha pasado más de 1 segundo desde el último reinicio
             // para mejorar el rendimiento
-            if (now - lastReset > 1000) {
+            if (now - lastReset > APP_CONFIG.activityThrottleMs) {
                 resetTimer();
                 lastReset = now;
             }

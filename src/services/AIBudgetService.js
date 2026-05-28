@@ -10,8 +10,17 @@ import { MarketPriceService } from './MarketPriceService';
 import { APUService } from './APUService';
 import { getCurrentYear, getCurrentYearRange } from '../utils/helpers';
 import { generateId } from '../utils/helpers';
+import { APP_CONFIG } from '../config/appConfig';
 
 export class AIBudgetService {
+    static resolveLocation(projectInfo = {}, overrideLocation = null) {
+        return overrideLocation || projectInfo.location || APP_CONFIG.defaultCountry;
+    }
+
+    static resolveProjectType(projectInfo = {}) {
+        return projectInfo.type || APP_CONFIG.defaultProjectType;
+    }
+
     /**
      * Generate budget items from natural language description
      * @param {string} prompt - User's natural language description
@@ -38,7 +47,7 @@ export class AIBudgetService {
                 }))
             );
 
-            const location = config.location || projectInfo.location || 'México';
+            const location = this.resolveLocation(projectInfo, config.location);
             const catalogCount = relevantCatalog.length;
             const catalogInfo = catalogCount > 0
                 ? `\n\nCATÁLOGO MAESTRO DISPONIBLE (${catalogCount} partidas más relevantes):\n${catalogContext}\n\nIMPORTANTE: Si encuentras coincidencias en el catálogo, DEBES usar los datos exactos (descripción, unidad, precio, categoría) y marcar "isCatalogItem": true.`
@@ -243,7 +252,7 @@ Retorna UNICAMENTE el JSON array estructurado. No hables fuera del JSON.`;
 "${prompt}"
 
 CONTEXTO DEL PROYECTO:
-- Tipo de Especialidad: ${projectInfo.type || 'General'}
+- Tipo de Especialidad: ${this.resolveProjectType(projectInfo)}
 - Ubicación: ${location}
 - Año: ${currentYear}
 ${catalogInfo}${basePricesInfo}
@@ -319,7 +328,7 @@ INSTRUCCIONES CLAVE:
             if (basePrices && Object.keys(basePrices).length > 0) {
                 console.log('🔍 Post-procesando: Buscando precios exactos en Base Maestra para mayor consistencia...');
 
-                const location = config.location || projectInfo.location || 'México';
+                const location = this.resolveLocation(projectInfo, config.location);
                 let replacedCount = 0;
 
                 for (const item of itemsWithIds) {
@@ -486,7 +495,7 @@ INSTRUCCIONES CLAVE:
         }
 
         try {
-            const location = projectInfo.location || 'México';
+            const location = this.resolveLocation(projectInfo);
 
             // Optimize payload: Send only necessary fields to save tokens
             const simplifiedItems = items.map(item => ({
@@ -598,7 +607,7 @@ IMPORTANTE:
         }
 
         try {
-            const location = projectInfo.location || 'México';
+            const location = this.resolveLocation(projectInfo);
             const prompt = `Analiza este presupuesto de construcción en ${location}:
 
 ${JSON.stringify(items.slice(0, 50), null, 2)}
@@ -656,7 +665,7 @@ Responde SOLO en HTML simple y claro, sin scripts ni estilos inline complejos.`;
                 .map(i => i.description)
                 .join(', ');
 
-            const location = projectInfo.location || 'México';
+            const location = this.resolveLocation(projectInfo);
             const prompt = `Genera una memoria descriptiva profesional para una cotización de construcción en ${location}.
 
 Partidas principales: ${itemDescriptions}
@@ -693,7 +702,7 @@ Escribe descripciones técnicas, profesionales y claras.`;
      * @param {Array} catalogItems - List of catalog items
      * @returns {Promise<Array>} - Updated items with new prices and reasoning
      */
-    static async updateCatalogPrices(catalogItems, location = 'México') {
+    static async updateCatalogPrices(catalogItems, location = APP_CONFIG.defaultCountry) {
         if (!catalogItems || catalogItems.length === 0) return [];
 
         try {
@@ -884,8 +893,8 @@ Reglas:
             const userPrompt = `
 Proyecto: ${projectInfo.project || projectInfo.projectName || projectInfo.name || 'Proyecto sin nombre'}
 Cliente: ${projectInfo.client || 'No especificado'}
-Tipo: ${projectInfo.type || 'General'}
-Ubicación: ${projectInfo.location || 'México'}
+Tipo: ${this.resolveProjectType(projectInfo)}
+Ubicación: ${this.resolveLocation(projectInfo)}
 Fecha de inicio: ${normalizedConfig.startDate}
 Complejidad estimada: ${complexity}
 Notas del usuario: ${normalizedConfig.notes || 'Sin notas'}
@@ -1055,8 +1064,8 @@ ${itemsList}
             generationMode: metadata.generationMode || 'manual',
             projectSnapshot: {
                 project: projectInfo.project || projectInfo.projectName || projectInfo.name || '',
-                type: projectInfo.type || 'General',
-                location: projectInfo.location || 'México',
+                type: this.resolveProjectType(projectInfo),
+                location: this.resolveLocation(projectInfo),
                 itemsCount: items.length
             },
             phases: normalizedPhases,
@@ -1225,7 +1234,7 @@ ${itemsList}
                 return `- ${item.description} (Cant: ${item.quantity} ${item.unit}, Cat: ${item.category})${basis}`;
             }).join('\n');
 
-            const location = projectInfo.location || 'México';
+            const location = this.resolveLocation(projectInfo);
 
             // PASO 1: Búsqueda INTELIGENTE en Base Maestra basada en el contexto del presupuesto
             console.log('🔍 Búsqueda inteligente en Base Maestra (Neodata) basada en el presupuesto...');
@@ -1555,7 +1564,7 @@ INSTRUCCIONES HÍBRIDAS - IA + BASE MAESTRA:
         if (!item || !item.description) throw new Error('Item description is required');
 
         try {
-            const location = projectInfo.location || 'México';
+            const location = this.resolveLocation(projectInfo);
             const currentYear = getCurrentYear();
 
             // PASO 1: Buscar materiales, mano de obra y equipos en Base Maestra ANTES de generar
@@ -2031,7 +2040,7 @@ RECUERDA: IGNORA COMPLETAMENTE LA CANTIDAD DEL PROYECTO (${item.quantity || 1}).
      * @param {Array} catalogData - Catalog items for reference
      * @returns {Promise<Object>} - Price suggestion with range
      */
-    static async suggestPrice(itemData, catalogData = [], location = 'México') {
+    static async suggestPrice(itemData, catalogData = [], location = APP_CONFIG.defaultCountry) {
         const { description, unit, category } = itemData;
 
         // PRIORIDAD 1: Buscar en catálogo del usuario

@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { formatCurrency, numberToWords } from '../utils/format';
 import { PDFTemplateService } from './PDFTemplateService';
 import { BudgetDocumentService } from './BudgetDocumentService';
+import { APP_CONFIG } from '../config/appConfig';
 
 export class PDFService {
     static exportBudget(projectInfo, items, total, subtotal, taxAmount) {
@@ -38,8 +39,8 @@ export class PDFService {
 
         const currentDate = new Date();
         const options = { day: 'numeric', month: 'long', year: 'numeric' };
-        const formattedDate = currentDate.toLocaleDateString('es-MX', options);
-        const locationText = projectInfo.location || 'México';
+        const formattedDate = currentDate.toLocaleDateString(APP_CONFIG.locale, options);
+        const locationText = projectInfo.location || APP_CONFIG.defaultCountry;
         const fullLocationAndDateText = `${locationText} a ${formattedDate}`;
 
         doc.setFont('helvetica', 'normal');
@@ -289,9 +290,9 @@ export class PDFService {
         doc.setFont('helvetica', 'normal');
         const currentDate = new Date();
         const options = { day: 'numeric', month: 'long', year: 'numeric' };
-        const formattedDate = currentDate.toLocaleDateString('es-MX', options); // Formato "3 de febrero de 2026"
+        const formattedDate = currentDate.toLocaleDateString(APP_CONFIG.locale, options); // Formato "3 de febrero de 2026"
 
-        const locationText = projectInfo.location || 'México';
+        const locationText = projectInfo.location || APP_CONFIG.defaultCountry;
         const fullLocationAndDateText = `${locationText} a ${formattedDate}`;
         const maxRightWidth = 210 - 165 - rightMargin; // Ancho disponible (35mm)
 
@@ -488,7 +489,7 @@ export class PDFService {
 
         const currentDate = new Date();
         const options = { day: 'numeric', month: 'long', year: 'numeric' };
-        const formattedDate = currentDate.toLocaleDateString('es-MX', options);
+        const formattedDate = currentDate.toLocaleDateString(APP_CONFIG.locale, options);
 
         doc.setFont('helvetica', 'bold');
         doc.text('FECHA:', 140, startY);

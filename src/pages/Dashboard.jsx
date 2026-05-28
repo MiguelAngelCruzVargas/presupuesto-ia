@@ -12,6 +12,7 @@ import { ErrorService } from '../services/ErrorService';
 import { CalculationsService } from '../services/CalculationsService';
 import ErrorTestPanel from '../components/testing/ErrorTestPanel';
 import { supabase } from '../lib/supabaseClient';
+import { APP_CONFIG } from '../config/appConfig';
 
 const Dashboard = () => {
     const { items, projectInfo, calculateSubtotal, calculateTotal, showToast, setItems, catalog, savedBudgets } = useProject();
@@ -64,7 +65,7 @@ const Dashboard = () => {
                         id: project.id,
                         name: project.name,
                         client: project.client || 'Sin cliente',
-                        type: project.type || 'General',
+                        type: project.type || APP_CONFIG.defaultProjectType,
                         location: project.location || '',
                         updatedAt: project.updated_at,
                         createdAt: project.created_at,
@@ -172,7 +173,7 @@ const Dashboard = () => {
         if (diffDays === 1) return 'Ayer';
         if (diffDays < 7) return `Hace ${diffDays} días`;
         if (diffDays < 30) return `Hace ${Math.floor(diffDays / 7)} semanas`;
-        return date.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
+        return date.toLocaleDateString(APP_CONFIG.locale, { day: 'numeric', month: 'short' });
     };
 
     const openProject = async (projectId) => {

@@ -1,4 +1,5 @@
 import { ErrorService } from './ErrorService';
+import { systemSettingsService } from './SystemSettingsService.js';
 
 /**
  * Servicio de Soporte con IA para PresuGenius
@@ -17,7 +18,40 @@ export class SupportAIService {
 
     static RATE_LIMIT_STORAGE_KEY = 'support_ai_rate_limit';
 
-    static PLATFORM_DOCUMENTATION = `
+    static getSettingsSnapshot() {
+        return systemSettingsService.getCachedOrDefaultSettings();
+    }
+
+    static async getResolvedSettings() {
+        return systemSettingsService.getAllSettings();
+    }
+
+    static formatPrice(price) {
+        return new Intl.NumberFormat('es-MX', {
+            style: 'currency',
+            currency: 'MXN',
+            maximumFractionDigits: 0
+        }).format(price || 0);
+    }
+
+    static formatWhatsAppNumber(whatsappNumber) {
+        const digits = (whatsappNumber || '').replace(/\D/g, '');
+        if (digits.length === 12 && digits.startsWith('52')) {
+            return `+${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
+        }
+        if (digits.length === 10) {
+            return `+52 ${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+        }
+        return whatsappNumber ? `+${whatsappNumber}` : 'WhatsApp no configurado';
+    }
+
+    static buildPlatformDocumentation(settings) {
+        const proPrice = this.formatPrice(settings.plan_pro_price);
+        const whatsappDisplay = this.formatWhatsAppNumber(settings.whatsapp_number);
+        const freeFeatures = (settings.plan_free_features || []).map(feature => `- ${feature}`).join('\n');
+        const proFeatures = (settings.plan_pro_features || []).map(feature => `- ${feature}`).join('\n');
+
+        return `
 # PresuGenius Pro - Documentación de Soporte
 
 ## ¿Qué es PresuGenius?
@@ -32,19 +66,19 @@ PresuGenius es una plataforma de presupuestos de construcción potenciada por In
 ### 2. Generador con IA
 - **Cómo usar:** En el Editor, clic en "Generar con IA".
 - **Funciones:** Presupuestos desde descripción, sugerencia de precios.
-- **Límites:** Gratis (3 gens), Pro (Ilimitado).
 
 ### 3. Catálogo
 - **Ubicación:** Menú lateral > "Catálogo".
-- **Límites:** Gratis (50 items), Pro (Ilimitado).
 
 ### 4. Configurar PDF
 - **Ubicación:** Menú lateral > "Configurar PDF".
 - **Funciones:** Configurar logo, encabezado, pie de página.
 
 ## Planes y Precios
-- **Plan Gratis:** 1 presupuesto, límites en IA.
-- **Plan Pro ($299 MXN/mes):** Ilimitado, soporte prioritario.
+- **Plan Gratis:** ${settings.plan_free_description}
+${freeFeatures}
+- **Plan Pro (${proPrice}/mes):** ${settings.plan_pro_description}
+${proFeatures}
 
 ## Solución de Problemas
 - **Error "No se puede conectar":** Verificar internet.
@@ -52,20 +86,34 @@ PresuGenius es una plataforma de presupuestos de construcción potenciada por In
 - **PDF no genera:** Verificar campos obligatorios.
 
 ## Contacto
-- **WhatsApp:** +52 281 197 5587
+- **WhatsApp:** ${whatsappDisplay}
 - **Email:** soporte@presugenius.com
 - **Horario:** Lunes a Viernes, 9:00 - 18:00 hrs.
-`;
+`.trim();
+    }
 
-    static getSystemInstruction() {
+    static buildHumanSupportMessage(settings) {
+        const whatsappDisplay = this.formatWhatsAppNumber(settings.whatsapp_number);
+        return `👤 Claro, puedes contactar con nuestro equipo de soporte humano directamente por WhatsApp al: **${whatsappDisplay}** (Horario: 9:00 - 18:00 hrs).`;
+    }
+
+    static buildConnectionErrorMessage(settings) {
+        const whatsappDisplay = this.formatWhatsAppNumber(settings.whatsapp_number);
+        return `⚠️ Error de conexión. Por favor contacta a WhatsApp: ${whatsappDisplay}`;
+    }
+
+    static getSystemInstruction(settings = this.getSettingsSnapshot()) {
+        const proPrice = this.formatPrice(settings.plan_pro_price);
+        const whatsappDisplay = this.formatWhatsAppNumber(settings.whatsapp_number);
+
         return `Eres Geni, el asistente de PresuGenius.
 INSTRUCCIONES:
 - Responde en español directo y conciso.
-- Plan Pro cuesta $299 MXN/mes.
-- Si no sabes, sugiere WhatsApp: +52 281 197 5587.
+- Plan Pro cuesta ${proPrice}/mes.
+- Si no sabes, sugiere WhatsApp: ${whatsappDisplay}.
 
 DOCUMENTACIÓN:
-${this.PLATFORM_DOCUMENTATION}`;
+${this.buildPlatformDocumentation(settings)}`;
     }
 
     static initializeChatHistory() {
@@ -111,8 +159,9 @@ ${this.PLATFORM_DOCUMENTATION}`;
         }
     }
 
-    static checkLocalKnowledgeBase(message) {
+    static checkLocalKnowledgeBase(message, settings = this.getSettingsSnapshot()) {
         const lowerMsg = message.toLowerCase();
+        const proPrice = this.formatPrice(settings.plan_pro_price);
 
         // Base de conocimiento local extendida con Regex para mejor coincidencia
         const extendedKnowledgeBase = [
@@ -124,7 +173,7 @@ ${this.PLATFORM_DOCUMENTATION}`;
             // Precios y Planes
             {
                 patterns: [/precio/, /costo/, /cuesta/, /plan pro/, /suscripcion/],
-                answer: '💰 **Precios y Planes:**\n- **Plan Gratis:** 3 generaciones con IA, catálogos básicos limitada.\n- **Plan Pro ($299 MXN/mes):** Presupuestos ilimitados, IA ilimitada, catálogos completos.\n\nPuedes ver más detalles en la sección "Mi Suscripción".'
+                answer: `💰 **Precios y Planes:**\n- **Plan Gratis:** ${settings.plan_free_description}.\n- **Plan Pro (${proPrice}/mes):** ${settings.plan_pro_description}.\n\nPuedes ver más detalles en la sección "Mi Suscripción".`
             },
             // Pagos
             {
@@ -144,12 +193,12 @@ ${this.PLATFORM_DOCUMENTATION}`;
             // Soporte Humano
             {
                 patterns: [/humano/, /persona/, /whatsapp/, /contacto/, /telefono/],
-                answer: '👤 Claro, puedes contactar con nuestro equipo de soporte humano directamente por WhatsApp al: **+52 281 197 5587** (Horario: 9:00 - 18:00 hrs).'
+                answer: this.buildHumanSupportMessage(settings)
             },
             // Errores
             {
                 patterns: [/error/, /falla/, /bug/, /no funciona/, /traba/],
-                answer: '🔧 ¡Oh no! Lamento que estés experimentando un problema. Para intentar solucionarlo, por favor prueba:\n1. Recargar la página (presiona F5 o Ctrl+R).\n2. Cerrar tu sesión y volver a iniciarla.\n\nSi el problema continúa, por favor contáctanos por WhatsApp al +52 281 197 5587. ¡Estaremos listos para ayudarte!'
+                answer: `🔧 ¡Oh no! Lamento que estés experimentando un problema. Para intentar solucionarlo, por favor prueba:\n1. Recargar la página (presiona F5 o Ctrl+R).\n2. Cerrar tu sesión y volver a iniciarla.\n\nSi el problema continúa, por favor contáctanos por WhatsApp. ${this.buildHumanSupportMessage(settings).replace('👤 Claro, puedes contactar con nuestro equipo de soporte humano directamente por WhatsApp al: ', '')}`
             },
             // Contraseña
             {
@@ -171,7 +220,8 @@ ${this.PLATFORM_DOCUMENTATION}`;
 
     static async sendMessage(message, userContext = {}) {
         try {
-            const localCheck = this.checkLocalKnowledgeBase(message);
+            const settings = await this.getResolvedSettings();
+            const localCheck = this.checkLocalKnowledgeBase(message, settings);
             if (localCheck.found) {
                 await new Promise(r => setTimeout(r, 600));
                 this.initializeChatHistory();
@@ -196,7 +246,7 @@ ${this.PLATFORM_DOCUMENTATION}`;
                 body: JSON.stringify({
                     message: contextMsg,
                     history: this.chatHistory.slice(0, -1),
-                    systemInstruction: this.getSystemInstruction()
+                    systemInstruction: this.getSystemInstruction(settings)
                 })
             });
 
@@ -217,7 +267,7 @@ ${this.PLATFORM_DOCUMENTATION}`;
             ErrorService.logError(error, 'SupportAIService.sendMessage');
             return {
                 success: false,
-                message: '⚠️ Error de conexión. Por favor contacta a WhatsApp: +52 281 197 5587',
+                message: this.buildConnectionErrorMessage(this.getSettingsSnapshot()),
                 showWhatsApp: true,
                 isError: true
             };

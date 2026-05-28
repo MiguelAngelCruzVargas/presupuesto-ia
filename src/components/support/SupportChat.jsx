@@ -23,6 +23,7 @@ import { useError } from '../../context/ErrorContext';
 import { ErrorService } from '../../services/ErrorService';
 import { renderMarkdown } from '../../utils/markdownRenderer';
 import { useLocation } from 'react-router-dom';
+import { APP_CONFIG } from '../../config/appConfig';
 
 const SupportChat = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -34,6 +35,7 @@ const SupportChat = () => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [errorReportMode, setErrorReportMode] = useState(false);
     const [whatsappNumber, setWhatsappNumber] = useState('522811975587'); // Default fallback
+    const [supportMessage, setSupportMessage] = useState('Hola, necesito ayuda con PresuGenius');
 
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
@@ -117,8 +119,9 @@ const SupportChat = () => {
     // Cargar configuración dinámica
     useEffect(() => {
         const loadSettings = async () => {
-            const number = await systemSettingsService.getSetting('whatsapp_number');
-            if (number) setWhatsappNumber(number);
+            const settings = await systemSettingsService.getAllSettings();
+            if (settings.whatsapp_number) setWhatsappNumber(settings.whatsapp_number);
+            if (settings.support_message) setSupportMessage(settings.support_message);
         };
         loadSettings();
     }, []);
@@ -144,11 +147,12 @@ const SupportChat = () => {
 
         // Check if user wants human support
         if (text.toLowerCase().includes('humano') || text.toLowerCase().includes('whatsapp') || text.toLowerCase().includes('persona')) {
+            const settings = systemSettingsService.getCachedOrDefaultSettings();
             setTimeout(() => {
             setMessages(prev => [...prev, {
                 id: Date.now(),
                 type: 'bot',
-                text: '¡Entendido! Con gusto te pongo en contacto con nuestro equipo. 🧑‍💻\n\nPara una atención más personalizada, puedes escribirnos directamente por WhatsApp. ¡Haz clic en el botón de abajo para empezar a chatear!',
+                text: `¡Entendido! Con gusto te pongo en contacto con nuestro equipo. 🧑‍💻\n\n${SupportAIService.buildHumanSupportMessage(settings)}\n\nHaz clic en el botón de abajo para empezar a chatear.`,
                 timestamp: new Date(),
                 showWhatsApp: true
             }]);
@@ -269,7 +273,7 @@ const SupportChat = () => {
             setMessages(prev => [...prev, {
                 id: Date.now(),
                 type: 'bot',
-                text: '¡Ups! 😬 Parece que estoy teniendo algunos problemas técnicos en este momento. No te preocupes, nuestro equipo ya está al tanto y trabajando para solucionarlo.\n\nMientras tanto, si necesitas ayuda urgente, por favor contáctanos directamente por WhatsApp: +52 281 197 5587. ¡Estaremos encantados de ayudarte!',
+                text: `¡Ups! 😬 Parece que estoy teniendo algunos problemas técnicos en este momento. No te preocupes, nuestro equipo ya está al tanto y trabajando para solucionarlo.\n\nMientras tanto, si necesitas ayuda urgente, ${SupportAIService.buildHumanSupportMessage(systemSettingsService.getCachedOrDefaultSettings()).replace('👤 Claro, puedes contactar con nuestro equipo de soporte humano directamente por WhatsApp al: ', 'por favor contáctanos directamente por WhatsApp al ')}`,
                 timestamp: new Date(),
                 isError: true,
                 showWhatsApp: true
@@ -310,7 +314,7 @@ const SupportChat = () => {
     };
 
     const openWhatsApp = () => {
-        const message = encodeURIComponent('Hola, necesito ayuda con PresuGenius');
+        const message = encodeURIComponent(supportMessage);
         window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
     };
 
@@ -446,7 +450,7 @@ const SupportChat = () => {
                                                 )}
 
                                                 <p className="text-[10px] opacity-50 mt-1">
-                                                    {message.timestamp.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                                                    {message.timestamp.toLocaleTimeString(APP_CONFIG.locale, { hour: '2-digit', minute: '2-digit' })}
                                                 </p>
                                             </div>
                                         </div>

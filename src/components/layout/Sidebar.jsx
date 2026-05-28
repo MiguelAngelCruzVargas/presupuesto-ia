@@ -144,12 +144,12 @@ const Sidebar = ({ mobileOpen, setMobileOpen }) => {
                     {isDark ? (
                         <>
                             <Sun size={16} />
-                            {isExpanded && <span className="inline">Modo Claro</span>}
+                            {isExpanded && <span className="inline">Cambiar a claro</span>}
                         </>
                     ) : (
                         <>
                             <Moon size={16} />
-                            {isExpanded && <span className="inline">Modo Oscuro</span>}
+                            {isExpanded && <span className="inline">Cambiar a oscuro</span>}
                         </>
                     )}
                 </button>

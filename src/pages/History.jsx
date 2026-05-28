@@ -18,6 +18,7 @@ import {
 import { useProject } from '../context/ProjectContext';
 import { formatCurrency } from '../utils/format';
 import Card from '../components/ui/Card';
+import { APP_CONFIG } from '../config/appConfig';
 
 const History = () => {
     const { loadBudget, deleteBudget: contextDeleteBudget } = useProject();
@@ -163,7 +164,7 @@ const History = () => {
 
     const formatProjectDate = (date) => {
         if (!date) return 'Fecha desconocida';
-        return new Date(date).toLocaleDateString('es-MX', {
+        return new Date(date).toLocaleDateString(APP_CONFIG.locale, {
             year: 'numeric',
             month: 'long',
             day: 'numeric'
@@ -423,7 +424,7 @@ const History = () => {
                                         <div className="min-w-0 flex-1">
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                                                    {b.type || 'General'}
+                                                    {b.type || APP_CONFIG.defaultProjectType}
                                                 </span>
                                                 <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                                                     {b.items?.length || 0} partidas

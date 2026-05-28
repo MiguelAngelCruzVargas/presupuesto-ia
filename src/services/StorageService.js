@@ -4,6 +4,7 @@
  */
 
 import { generateId } from '../utils/helpers';
+import { APP_CONFIG, createDefaultProjectInfo } from '../config/appConfig';
 
 const STORAGE_KEY = 'presupuesto_ia_projects';
 
@@ -11,13 +12,13 @@ export class StorageService {
     static normalizeProject(projectData) {
         const now = new Date().toISOString();
         const id = projectData.id || projectData.projectInfo?.id || generateId();
-        const projectInfo = {
+        const projectInfo = createDefaultProjectInfo({
             id,
             project: projectData.projectInfo?.project || projectData.project || 'Sin Nombre',
             client: projectData.projectInfo?.client || projectData.client || '',
-            location: projectData.projectInfo?.location || projectData.location || 'México',
+            location: projectData.projectInfo?.location || projectData.location || APP_CONFIG.defaultCountry,
             ...projectData.projectInfo
-        };
+        });
 
         return {
             ...projectData,
@@ -43,8 +44,8 @@ export class StorageService {
             ...normalized,
             project: normalized.projectInfo?.project || 'Sin Nombre',
             client: normalized.projectInfo?.client || 'Sin Cliente',
-            type: normalized.projectInfo?.type || 'General',
-            location: normalized.projectInfo?.location || 'México',
+            type: normalized.projectInfo?.type || APP_CONFIG.defaultProjectType,
+            location: normalized.projectInfo?.location || APP_CONFIG.defaultCountry,
             lastModified: normalized.lastModified,
             total
         };

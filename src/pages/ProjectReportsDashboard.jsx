@@ -18,6 +18,7 @@ import Card from '../components/ui/Card';
 import ProjectPersistenceService from '../services/ProjectPersistenceService';
 import { formatCurrency } from '../utils/format';
 import AlertModal from '../components/ui/AlertModal';
+import { APP_CONFIG } from '../config/appConfig';
 
 const ProjectReportsDashboard = () => {
     const navigate = useNavigate();
@@ -35,7 +36,7 @@ const ProjectReportsDashboard = () => {
         name: '',
         client: '',
         location: '',
-        type: 'General'
+        type: APP_CONFIG.defaultProjectType
     });
 
     useEffect(() => {
@@ -81,7 +82,7 @@ const ProjectReportsDashboard = () => {
 
             const saved = await ProjectPersistenceService.saveProject(projectData);
             setShowNewProjectModal(false);
-            setNewProject({ name: '', client: '', location: '', type: 'General' });
+            setNewProject({ name: '', client: '', location: '', type: APP_CONFIG.defaultProjectType });
             loadProjects();
 
             setAlertModal({
@@ -141,7 +142,7 @@ const ProjectReportsDashboard = () => {
 
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
-        return new Date(dateString).toLocaleDateString('es-MX', {
+        return new Date(dateString).toLocaleDateString(APP_CONFIG.locale, {
             day: 'numeric',
             month: 'short',
             year: 'numeric'
@@ -289,7 +290,7 @@ const ProjectReportsDashboard = () => {
                                             <Folder size={24} />
                                         </div>
                                         <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded">
-                                            {project.type || 'General'}
+                                            {project.type || APP_CONFIG.defaultProjectType}
                                         </span>
                                     </div>
                                     <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2 line-clamp-1">{project.project}</h3>
@@ -352,7 +353,7 @@ const ProjectReportsDashboard = () => {
                                                 </div>
                                                 <div>
                                                     <p className="font-bold text-slate-900 dark:text-white">{project.project}</p>
-                                                    <p className="text-xs text-slate-500">{project.type || 'General'}</p>
+                                                    <p className="text-xs text-slate-500">{project.type || APP_CONFIG.defaultProjectType}</p>
                                                 </div>
                                             </div>
                                         </td>

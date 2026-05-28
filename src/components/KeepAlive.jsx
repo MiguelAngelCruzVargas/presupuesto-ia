@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { APP_CONFIG } from '../config/appConfig';
 
 /**
  * KeepAlive Component
@@ -9,14 +10,6 @@ import { supabase } from '../lib/supabaseClient';
  */
 export default function KeepAlive() {
     useEffect(() => {
-        // Render Free suspende la app tras 15 MINUTOS de inactividad.
-        // Usamos 10 minutos para estar seguros mientras el usuario tenga la pestaña abierta.
-        const RENDER_INTERVAL = 10 * 60 * 1000;
-
-        // Supabase Free pausa el proyecto tras 7 DÍAS de inactividad.
-        // Un pulso cada 24 horas es más que suficiente para esto.
-        const SUPABASE_INTERVAL = 24 * 60 * 60 * 1000;
-
         const sendRenderPulse = async () => {
             // Solo enviar pulso si hay API configurada (producción o backend en 4001); evita ERR_CONNECTION_REFUSED en dev sin servidor
             const apiBaseUrl = import.meta.env.VITE_API_URL;
@@ -43,8 +36,8 @@ export default function KeepAlive() {
         sendSupabasePulse();
 
         // Configurar intervalos
-        const renderTimer = setInterval(sendRenderPulse, RENDER_INTERVAL);
-        const supabaseTimer = setInterval(sendSupabasePulse, SUPABASE_INTERVAL);
+        const renderTimer = setInterval(sendRenderPulse, APP_CONFIG.renderKeepAliveIntervalMs);
+        const supabaseTimer = setInterval(sendSupabasePulse, APP_CONFIG.supabaseKeepAliveIntervalMs);
 
         return () => {
             clearInterval(renderTimer);

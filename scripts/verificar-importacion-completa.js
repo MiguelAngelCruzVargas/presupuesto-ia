@@ -27,7 +27,7 @@ async function verificar() {
     console.log('═'.repeat(60));
     
     // Contar todos los conceptos de construbase
-    const { data: construba seData, error, count } = await supabase
+    const { data: construbaseData, error, count } = await supabase
         .from('market_price_reference')
         .select('*', { count: 'exact' })
         .eq('source', 'construbase_libre')
@@ -43,7 +43,7 @@ async function verificar() {
     // Contar únicos por descripción + unidad
     const unicos = new Set();
     if (construbaseData && Array.isArray(construbaseData)) {
-        construba seData.forEach(item => {
+        construbaseData.forEach(item => {
             const key = `${(item.description || '').toLowerCase()}_${(item.unit || '').toLowerCase()}`;
             unicos.add(key);
         });
