@@ -286,99 +286,51 @@ const SharedProjectPage = () => {
                         <h2 className="text-base sm:text-lg font-bold text-slate-800">Partidas del Presupuesto</h2>
                     </div>
 
-                    {/* Mobile Card List (Hidden on desktop) */}
-                    <div className="block sm:hidden divide-y divide-slate-100">
-                        {items.map((item, index) => (
-                            <div key={item.id || index} className="p-4 hover:bg-slate-50 transition">
-                                <div className="flex justify-between items-start gap-2 mb-2">
-                                    <div className="font-medium text-slate-800 text-sm leading-snug">{item.description}</div>
-                                    <span className="text-xs font-semibold text-slate-400">#{index + 1}</span>
-                                </div>
-                                {item.category && (
-                                    <span className="inline-block bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded-full mb-3 font-medium">
-                                        {item.category}
-                                    </span>
-                                )}
-                                <div className="grid grid-cols-3 gap-2 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg">
-                                    <div>
-                                        <span className="block text-slate-400 text-[10px] uppercase font-semibold mb-0.5">Cant/Uni</span>
-                                        <span className="font-semibold text-slate-700">{item.quantity?.toFixed(2) || '0.00'} <span className="text-[10px] font-normal text-slate-500">{item.unit || 'pza'}</span></span>
-                                    </div>
-                                    <div>
-                                        <span className="block text-slate-400 text-[10px] uppercase font-semibold mb-0.5">P. Unit</span>
-                                        <span className="font-semibold text-slate-700">{formatCurrency(item.unitPrice || 0)}</span>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="block text-slate-400 text-[10px] uppercase font-semibold mb-0.5">Total</span>
-                                        <span className="font-bold text-emerald-600">{formatCurrency((item.quantity || 0) * (item.unitPrice || 0))}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                        
-                        {/* Mobile Summary Block */}
-                        <div className="bg-slate-50 p-4 border-t border-slate-200 space-y-2 text-xs text-slate-600">
-                            <div className="flex justify-between">
-                                <span className="font-medium">Subtotal:</span>
-                                <span className="font-semibold text-slate-800">{formatCurrency(subtotal)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="font-medium">IVA ({projectData.projectInfo?.taxRate ?? 16}%):</span>
-                                <span className="font-semibold text-slate-800">{formatCurrency(tax)}</span>
-                            </div>
-                            <div className="flex justify-between pt-2 border-t border-slate-200 text-sm font-bold text-emerald-700">
-                                <span>Total:</span>
-                                <span>{formatCurrency(total)}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Desktop Table View (Hidden on mobile) */}
-                    <div className="hidden sm:block overflow-x-auto">
-                        <table className="w-full">
+                    <div className="overflow-x-auto w-full">
+                        <table className="w-full min-w-[700px] divide-y divide-slate-200">
                             <thead className="bg-slate-50">
                                 <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase">#</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase">Descripción</th>
-                                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase">Unidad</th>
-                                    <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase">Cantidad</th>
-                                    <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase">P. Unit.</th>
-                                    <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase">Total</th>
+                                    <th className="px-4 sm:px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase w-12">#</th>
+                                    <th className="px-4 sm:px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase">Descripción</th>
+                                    <th className="px-4 sm:px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase w-20">Unidad</th>
+                                    <th className="px-4 sm:px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase w-24">Cantidad</th>
+                                    <th className="px-4 sm:px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase w-28">P. Unit.</th>
+                                    <th className="px-4 sm:px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase w-32">Total</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200">
                                 {items.map((item, index) => (
                                     <tr key={item.id || index} className="hover:bg-slate-50 transition">
-                                        <td className="px-6 py-4 text-sm text-slate-600">{index + 1}</td>
-                                        <td className="px-6 py-4">
-                                            <div className="text-sm font-medium text-slate-800">{item.description}</div>
+                                        <td className="px-4 sm:px-6 py-3.5 text-sm text-slate-600">{index + 1}</td>
+                                        <td className="px-4 sm:px-6 py-3.5">
+                                            <div className="text-sm font-medium text-slate-800 leading-snug">{item.description}</div>
                                             {item.category && (
-                                                <div className="text-xs text-slate-500 mt-1">{item.category}</div>
+                                                <div className="text-[11px] text-slate-500 mt-0.5">{item.category}</div>
                                             )}
                                         </td>
-                                        <td className="px-6 py-4 text-sm text-slate-600">{item.unit || 'pza'}</td>
-                                        <td className="px-6 py-4 text-sm text-slate-800 text-right">{item.quantity?.toFixed(2) || '0.00'}</td>
-                                        <td className="px-6 py-4 text-sm text-slate-800 text-right">{formatCurrency(item.unitPrice || 0)}</td>
-                                        <td className="px-6 py-4 text-sm font-medium text-slate-800 text-right">
+                                        <td className="px-4 sm:px-6 py-3.5 text-sm text-slate-600">{item.unit || 'pza'}</td>
+                                        <td className="px-4 sm:px-6 py-3.5 text-sm text-slate-800 text-right">{item.quantity?.toFixed(2) || '0.00'}</td>
+                                        <td className="px-4 sm:px-6 py-3.5 text-sm text-slate-800 text-right">{formatCurrency(item.unitPrice || 0)}</td>
+                                        <td className="px-4 sm:px-6 py-3.5 text-sm font-medium text-slate-800 text-right">
                                             {formatCurrency((item.quantity || 0) * (item.unitPrice || 0))}
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
-                            <tfoot className="bg-slate-50">
+                            <tfoot className="bg-slate-50 divide-y divide-slate-200/50">
                                 <tr>
-                                    <td colSpan="4" className="px-6 py-4 text-right text-sm font-bold text-slate-700">Subtotal:</td>
-                                    <td colSpan="2" className="px-6 py-4 text-right text-sm font-bold text-slate-800">{formatCurrency(subtotal)}</td>
+                                    <td colSpan="4" className="px-4 sm:px-6 py-3 text-right text-sm font-bold text-slate-700">Subtotal:</td>
+                                    <td colSpan="2" className="px-4 sm:px-6 py-3 text-right text-sm font-bold text-slate-800">{formatCurrency(subtotal)}</td>
                                 </tr>
                                 <tr>
-                                    <td colSpan="4" className="px-6 py-4 text-right text-sm font-bold text-slate-700">
+                                    <td colSpan="4" className="px-4 sm:px-6 py-3 text-right text-sm font-bold text-slate-700">
                                         IVA ({projectData.projectInfo?.taxRate ?? 16}%):
                                     </td>
-                                    <td colSpan="2" className="px-6 py-4 text-right text-sm font-bold text-slate-800">{formatCurrency(tax)}</td>
+                                    <td colSpan="2" className="px-4 sm:px-6 py-3 text-right text-sm font-bold text-slate-800">{formatCurrency(tax)}</td>
                                 </tr>
                                 <tr className="bg-emerald-50">
-                                    <td colSpan="4" className="px-6 py-4 text-right text-lg font-bold text-emerald-700">Total:</td>
-                                    <td colSpan="2" className="px-6 py-4 text-right text-lg font-bold text-emerald-700">{formatCurrency(total)}</td>
+                                    <td colSpan="4" className="px-4 sm:px-6 py-3.5 text-right text-base font-bold text-emerald-700">Total:</td>
+                                    <td colSpan="2" className="px-4 sm:px-6 py-3.5 text-right text-base font-bold text-emerald-700">{formatCurrency(total)}</td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -405,86 +357,44 @@ const SharedProjectPage = () => {
                             </div>
                         )}
 
-                        {/* Mobile Card List (Hidden on desktop) */}
-                        <div className="block sm:hidden divide-y divide-slate-100">
-                            {projectData.materialList.map((mat, idx) => (
-                                <div key={idx} className="p-4 hover:bg-slate-50 transition">
-                                    <div className="font-medium text-slate-800 text-sm leading-snug mb-1.5">{mat.material}</div>
-                                    <div className="flex gap-2 mb-2.5">
-                                        <span className="inline-block bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full font-medium">
-                                            {mat.category || 'Materiales'}
-                                        </span>
-                                    </div>
-                                    <div className="grid grid-cols-3 gap-2 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg">
-                                        <div>
-                                            <span className="block text-slate-400 text-[10px] uppercase font-semibold mb-0.5">Cant/Uni</span>
-                                            <span className="font-semibold text-slate-700">{mat.quantity?.toFixed(2) || '0.00'} <span className="text-[10px] font-normal text-slate-500">{mat.unit || 'pza'}</span></span>
-                                        </div>
-                                        <div>
-                                            <span className="block text-slate-400 text-[10px] uppercase font-semibold mb-0.5">Costo Est</span>
-                                            <span className="font-semibold text-slate-700">{formatCurrency(mat.unitPrice || 0)}</span>
-                                        </div>
-                                        <div className="text-right">
-                                            <span className="block text-slate-400 text-[10px] uppercase font-semibold mb-0.5">Total</span>
-                                            <span className="font-bold text-indigo-600">{formatCurrency((mat.quantity || 0) * (mat.unitPrice || 0))}</span>
-                                        </div>
-                                    </div>
-                                    {mat.notes && (
-                                        <div className="mt-2 text-[10px] sm:text-xs text-slate-500 italic bg-amber-50/50 p-2 rounded border border-amber-100/50">
-                                            <span className="font-medium text-amber-700 not-italic">Nota:</span> {mat.notes}
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                            <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between text-xs font-bold text-slate-700">
-                                <span>Total Estimado:</span>
-                                <span className="text-slate-800">
-                                    {formatCurrency(
-                                        projectData.materialList.reduce((sum, m) => sum + ((m.quantity || 0) * (m.unitPrice || 0)), 0)
-                                    )}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Desktop Table View (Hidden on mobile) */}
-                        <div className="hidden sm:block overflow-x-auto">
-                            <table className="w-full">
+                        <div className="overflow-x-auto w-full">
+                            <table className="w-full min-w-[750px] divide-y divide-slate-200">
                                 <thead className="bg-slate-50">
                                     <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase">Material</th>
-                                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase">Categoría</th>
-                                        <th className="px-6 py-3 text-center text-xs font-bold text-slate-600 uppercase">Unidad</th>
-                                        <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase">Cantidad</th>
-                                        <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase">Costo Est.</th>
-                                        <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase">Total</th>
+                                        <th className="px-4 sm:px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase">Material</th>
+                                        <th className="px-4 sm:px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase w-32">Categoría</th>
+                                        <th className="px-4 sm:px-6 py-3 text-center text-xs font-bold text-slate-600 uppercase w-20">Unidad</th>
+                                        <th className="px-4 sm:px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase w-24">Cantidad</th>
+                                        <th className="px-4 sm:px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase w-28">Costo Est.</th>
+                                        <th className="px-4 sm:px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase w-32">Total</th>
                                         {projectData.materialList.some(m => m.notes) && (
-                                            <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase">Notas</th>
+                                            <th className="px-4 sm:px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase">Notas</th>
                                         )}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200">
                                     {projectData.materialList.map((mat, idx) => (
                                         <tr key={idx} className="hover:bg-slate-50 transition">
-                                            <td className="px-6 py-4 text-sm font-medium text-slate-800">{mat.material}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-600">{mat.category || 'Materiales'}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-600 text-center">{mat.unit || 'pza'}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-800 text-right">{mat.quantity?.toFixed(2) || '0.00'}</td>
-                                            <td className="px-6 py-4 text-sm text-slate-800 text-right">{formatCurrency(mat.unitPrice || 0)}</td>
-                                            <td className="px-6 py-4 text-sm font-medium text-slate-800 text-right">
+                                            <td className="px-4 sm:px-6 py-3.5 text-sm font-medium text-slate-800">{mat.material}</td>
+                                            <td className="px-4 sm:px-6 py-3.5 text-sm text-slate-600">{mat.category || 'Materiales'}</td>
+                                            <td className="px-4 sm:px-6 py-3.5 text-sm text-slate-600 text-center">{mat.unit || 'pza'}</td>
+                                            <td className="px-4 sm:px-6 py-3.5 text-sm text-slate-800 text-right">{mat.quantity?.toFixed(2) || '0.00'}</td>
+                                            <td className="px-4 sm:px-6 py-3.5 text-sm text-slate-800 text-right">{formatCurrency(mat.unitPrice || 0)}</td>
+                                            <td className="px-4 sm:px-6 py-3.5 text-sm font-medium text-slate-800 text-right">
                                                 {formatCurrency((mat.quantity || 0) * (mat.unitPrice || 0))}
                                             </td>
                                             {projectData.materialList.some(m => m.notes) && (
-                                                <td className="px-6 py-4 text-xs text-slate-500 italic">{mat.notes || '-'}</td>
+                                                <td className="px-4 sm:px-6 py-3.5 text-xs text-slate-500 italic">{mat.notes || '-'}</td>
                                             )}
                                         </tr>
                                     ))}
                                 </tbody>
                                 <tfoot className="bg-slate-50">
                                     <tr>
-                                        <td colSpan={projectData.materialList.some(m => m.notes) ? 5 : 4} className="px-6 py-4 text-right text-sm font-bold text-slate-700">
+                                        <td colSpan={projectData.materialList.some(m => m.notes) ? 5 : 4} className="px-4 sm:px-6 py-4 text-right text-sm font-bold text-slate-700">
                                             Total Estimado:
                                         </td>
-                                        <td colSpan={2} className="px-6 py-4 text-right text-sm font-bold text-slate-800">
+                                        <td colSpan={2} className="px-4 sm:px-6 py-4 text-right text-sm font-bold text-slate-800">
                                             {formatCurrency(
                                                 projectData.materialList.reduce((sum, m) => sum + ((m.quantity || 0) * (m.unitPrice || 0)), 0)
                                             )}
