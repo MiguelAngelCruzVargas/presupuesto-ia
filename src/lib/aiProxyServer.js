@@ -1544,7 +1544,7 @@ const distPath = path.join(__dirname, '../../dist');
 app.use(express.static(distPath));
 
 // Cualquier otra ruta que no sea de la API debe redirigirse al index.html de React
-app.get('(.*)', (req, res) => {
+app.get(/.*/, (req, res) => {
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
