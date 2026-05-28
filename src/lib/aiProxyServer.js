@@ -323,6 +323,8 @@ const AI_API_KEY_FALLBACK = process.env.AI_API_KEY || process.env.GEMINI_API_KEY
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = "llama-3.3-70b-versatile"; // Modelo de Groq actualizado a Llama 3.3 70B
+const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
+const DEEPSEEK_MODEL = "deepseek-v4-flash";
 
 function getProviderLabel(provider) {
     if (provider === PROVIDERS.GROQ) return 'Groq';
@@ -333,6 +335,10 @@ function getProviderLabel(provider) {
 
 function getConfiguredPrimaryProviders(tier = USER_TIER.FREE) {
     const providers = [];
+
+    if (apiKeyManager.hasAvailableKeys(PROVIDERS.DEEPSEEK, tier)) {
+        providers.push(PROVIDERS.DEEPSEEK);
+    }
 
     if (apiKeyManager.hasAvailableKeys(PROVIDERS.GROQ, tier)) {
         providers.push(PROVIDERS.GROQ);
@@ -345,18 +351,20 @@ function getConfiguredPrimaryProviders(tier = USER_TIER.FREE) {
     return providers;
 }
 
-// Verificar que haya al menos una key disponible para Gemini o Groq
+// Verificar que haya al menos una key disponible para Gemini, Groq o DeepSeek
 const configuredPrimaryProviders = getConfiguredPrimaryProviders(USER_TIER.FREE);
 
 if (configuredPrimaryProviders.length === 0) {
     console.error('\n❌ ERROR: No hay API keys configuradas para proveedores soportados.');
     console.error('\n📝 Pasos para solucionarlo:');
     console.error('1. Agrega al menos una de estas al archivo .env:');
+    console.error('   - DEEPSEEK_API_KEY_FREE_1=tu_api_key');
     console.error('   - GEMINI_API_KEY_FREE_1=tu_api_key (o AI_API_KEY=tu_api_key como fallback)');
     console.error('   - GROQ_API_KEY_FREE_1=tu_api_key');
-    console.error('2. Obtén tu API key de Gemini en: https://aistudio.google.com/app/apikey');
-    console.error('3. Obtén tu API key de Groq en: https://console.groq.com/keys');
-    console.error('4. Reinicia el proxy con: npm run ai-proxy\n');
+    console.error('2. Obtén tu API key de DeepSeek en: https://platform.deepseek.com/');
+    console.error('3. Obtén tu API key de Gemini en: https://aistudio.google.com/app/apikey');
+    console.error('4. Obtén tu API key de Groq en: https://console.groq.com/keys');
+    console.error('5. Reinicia el proxy con: npm run ai-proxy\n');
     process.exit(1);
 }
 
@@ -368,10 +376,22 @@ console.log(`   - Proveedores activos: ${configuredPrimaryProviders.map(getProvi
 if (AI_API_KEY_FALLBACK) {
     console.log(`   - Key genérica (fallback): Configurada`);
 }
-console.log(`✅ Modelos disponibles: Gemini (gemini-flash-latest), Groq (${GROQ_MODEL})`);
+console.log(`✅ Modelos disponibles: DeepSeek (${DEEPSEEK_MODEL}), Groq (${GROQ_MODEL}), Gemini (gemini-flash-latest)`);
 console.log(`✅ Directorio de uploads: ${uploadDir}`);
 
 function buildAIRequestBody(provider, { prompt, systemInstruction }) {
+    if (provider === PROVIDERS.DEEPSEEK) {
+        return {
+            model: DEEPSEEK_MODEL,
+            messages: [
+                { role: "system", content: systemInstruction || "You are a helpful AI assistant." },
+                { role: "user", content: prompt }
+            ],
+            temperature: 0.2,
+            max_tokens: 8192,
+        };
+    }
+
     if (provider === PROVIDERS.GROQ) {
         return {
             model: GROQ_MODEL,
@@ -419,7 +439,9 @@ function normalizeProviderErrorMessage(provider, rawMessage, status) {
         ? 'Groq'
         : provider === PROVIDERS.GEMINI
             ? 'Gemini'
-            : provider;
+            : provider === PROVIDERS.DEEPSEEK
+                ? 'DeepSeek'
+                : provider;
 
     if (
         lowerMessage.includes('invalid api key') ||
@@ -490,7 +512,7 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
 
             if (apiKey) {
                 providerUsed = provider;
-                endpointUsed = provider === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT;
+                endpointUsed = provider === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT : (provider === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
                 maskedKey = apiKeyManager.maskKey(apiKey);
                 requestBody = buildAIRequestBody(provider, { prompt, systemInstruction });
                 break;
@@ -526,7 +548,7 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
 
                 if (providerUsed === PROVIDERS.GEMINI) {
                     currentUrl = `${endpointUsed}?key=${currentApiKey}`;
-                } else if (providerUsed === PROVIDERS.GROQ) {
+                } else if (providerUsed === PROVIDERS.GROQ || providerUsed === PROVIDERS.DEEPSEEK) {
                     fetchOptions.headers['Authorization'] = `Bearer ${currentApiKey}`;
                 }
 
@@ -562,13 +584,21 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                     currentApiKey = apiKeyManager.getApiKeyForProvider(providerUsed, tier, funcType);
 
                     if (!currentApiKey || currentApiKey === previousKey) {
-                        const otherProvider = providerUsed === PROVIDERS.GEMINI ? PROVIDERS.GROQ : PROVIDERS.GEMINI;
-                        currentApiKey = apiKeyManager.getApiKeyForProvider(otherProvider, tier, funcType);
-                        if (currentApiKey) {
-                            providerUsed = otherProvider;
-                            endpointUsed = otherProvider === PROVIDERS.GEMINI ? GEMINI_ENDPOINT : GROQ_ENDPOINT;
-                            requestBody = buildAIRequestBody(providerUsed, { prompt, systemInstruction });
-                        } else {
+                        let foundNext = false;
+                        const currentIdx = providerPriority.indexOf(providerUsed);
+                        for (let i = currentIdx + 1; i < providerPriority.length; i++) {
+                            const nextProvider = providerPriority[i];
+                            const nextKey = apiKeyManager.getApiKeyForProvider(nextProvider, tier, funcType);
+                            if (nextKey) {
+                                currentApiKey = nextKey;
+                                providerUsed = nextProvider;
+                                endpointUsed = providerUsed === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT : (providerUsed === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
+                                requestBody = buildAIRequestBody(providerUsed, { prompt, systemInstruction });
+                                foundNext = true;
+                                break;
+                            }
+                        }
+                        if (!foundNext) {
                             break;
                         }
                     }
@@ -588,12 +618,22 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                     const previousKey = currentApiKey;
                     currentApiKey = apiKeyManager.getApiKeyForProvider(providerUsed, tier, funcType);
                     if (!currentApiKey || currentApiKey === previousKey) {
-                        const otherProvider = providerUsed === PROVIDERS.GEMINI ? PROVIDERS.GROQ : PROVIDERS.GEMINI;
-                        currentApiKey = apiKeyManager.getApiKeyForProvider(otherProvider, tier, funcType);
-                        if (currentApiKey) {
-                            providerUsed = otherProvider;
-                            endpointUsed = otherProvider === PROVIDERS.GEMINI ? GEMINI_ENDPOINT : GROQ_ENDPOINT;
-                            requestBody = buildAIRequestBody(providerUsed, { prompt, systemInstruction });
+                        let foundNext = false;
+                        const currentIdx = providerPriority.indexOf(providerUsed);
+                        for (let i = currentIdx + 1; i < providerPriority.length; i++) {
+                            const nextProvider = providerPriority[i];
+                            const nextKey = apiKeyManager.getApiKeyForProvider(nextProvider, tier, funcType);
+                            if (nextKey) {
+                                currentApiKey = nextKey;
+                                providerUsed = nextProvider;
+                                endpointUsed = providerUsed === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT : (providerUsed === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
+                                requestBody = buildAIRequestBody(providerUsed, { prompt, systemInstruction });
+                                foundNext = true;
+                                break;
+                            }
+                        }
+                        if (!foundNext) {
+                            // No more fallbacks
                         }
                     }
                 }
@@ -674,20 +714,19 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                 });
             }
             finalResponseData = data;
-        } else if (providerUsed === PROVIDERS.GROQ) {
+        } else if (providerUsed === PROVIDERS.GROQ || providerUsed === PROVIDERS.DEEPSEEK) {
             if (!data.choices || data.choices.length === 0) {
                 return res.status(500).json({
-                    error: 'La IA (Groq) no generó una respuesta válida'
+                    error: `La IA (${providerUsed === PROVIDERS.DEEPSEEK ? 'DeepSeek' : 'Groq'}) no generó una respuesta válida`
                 });
             }
-            // Adaptar la respuesta de Groq para que sea similar a la de Gemini si es posible
+            // Adaptar la respuesta de Groq/DeepSeek para que sea similar a la de Gemini si es posible
             finalResponseData = {
                 candidates: [{
                     content: {
                         parts: [{ text: data.choices[0]?.message?.content || '' }]
                     }
                 }],
-                // Otros campos relevantes de Groq si es necesario
             };
         }
 
@@ -724,82 +763,85 @@ app.post('/api/ai/chat', rateLimiter, async (req, res) => {
         let requestBody;
         let maskedKey;
 
-        // PRIORIDAD: Intentar con Groq primero
-        apiKey = apiKeyManager.getApiKey(PROVIDERS.GROQ, tier, FUNCTION_TYPE.GENERAL);
-        if (apiKey) {
-            providerUsed = PROVIDERS.GROQ;
-            endpointUsed = GROQ_ENDPOINT;
-            maskedKey = apiKeyManager.maskKey(apiKey);
-
-            const messages = [];
-            if (systemInstruction) {
-                messages.push({ role: "system", content: systemInstruction });
+        const providerPriority = getConfiguredPrimaryProviders(tier);
+        for (const provider of providerPriority) {
+            apiKey = apiKeyManager.getApiKeyForProvider(provider, tier, FUNCTION_TYPE.GENERAL);
+            if (!apiKey && provider === PROVIDERS.GEMINI && AI_API_KEY_FALLBACK) {
+                apiKey = AI_API_KEY_FALLBACK;
             }
-            if (history && Array.isArray(history)) {
-                history.forEach(msg => {
-                    if (msg.role && msg.text) {
-                        messages.push({
-                            role: msg.role === 'user' ? 'user' : 'assistant',
-                            content: msg.text
-                        });
-                    }
-                });
-            }
-            messages.push({ role: "user", content: message });
 
-            requestBody = {
-                model: GROQ_MODEL,
-                messages: messages,
-                temperature: 0.7,
-                max_tokens: 1024,
-            };
-        } else {
-            // Si no hay Groq, intentar con Gemini
-            apiKey = apiKeyManager.getApiKey(PROVIDERS.GEMINI, tier, FUNCTION_TYPE.GENERAL);
             if (apiKey) {
-                providerUsed = PROVIDERS.GEMINI;
-                endpointUsed = GEMINI_ENDPOINT;
+                providerUsed = provider;
+                endpointUsed = provider === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT : (provider === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
                 maskedKey = apiKeyManager.maskKey(apiKey);
 
-                const contents = [];
-                if (history && Array.isArray(history)) {
-                    history.forEach(msg => {
-                        if (msg.role && msg.text) {
-                            contents.push({
-                                role: msg.role === 'user' ? 'user' : 'model',
-                                parts: [{ text: msg.text }]
-                            });
-                        }
-                    });
-                }
-                contents.push({
-                    role: 'user',
-                    parts: [{ text: message }]
-                });
+                if (provider === PROVIDERS.DEEPSEEK || provider === PROVIDERS.GROQ) {
+                    const messages = [];
+                    if (systemInstruction) {
+                        messages.push({ role: "system", content: systemInstruction });
+                    }
+                    if (history && Array.isArray(history)) {
+                        history.forEach(msg => {
+                            if (msg.role && msg.text) {
+                                messages.push({
+                                    role: msg.role === 'user' ? 'user' : 'assistant',
+                                    content: msg.text
+                                });
+                            }
+                        });
+                    }
+                    messages.push({ role: "user", content: message });
 
-                requestBody = { contents: contents };
-                if (systemInstruction) {
-                    requestBody.systemInstruction = {
-                        parts: [{ text: systemInstruction }]
+                    requestBody = {
+                        model: provider === PROVIDERS.DEEPSEEK ? DEEPSEEK_MODEL : GROQ_MODEL,
+                        messages: messages,
+                        temperature: 0.7,
+                        max_tokens: 1024,
                     };
+                } else if (provider === PROVIDERS.GEMINI) {
+                    const contents = [];
+                    if (history && Array.isArray(history)) {
+                        history.forEach(msg => {
+                            if (msg.role && msg.text) {
+                                contents.push({
+                                    role: msg.role === 'user' ? 'user' : 'model',
+                                    parts: [{ text: msg.text }]
+                                });
+                            }
+                        });
+                    }
+                    contents.push({
+                        role: 'user',
+                        parts: [{ text: message }]
+                    });
+
+                    requestBody = { contents: contents };
+                    if (systemInstruction) {
+                        requestBody.systemInstruction = {
+                            parts: [{ text: systemInstruction }]
+                        };
+                    }
+                    requestBody.generationConfig = {
+                        temperature: 0.7,
+                        topP: 0.95,
+                        topK: 40,
+                        maxOutputTokens: 1024,
+                    };
+                    requestBody.safetySettings = [
+                        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+                        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+                        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+                        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+                    ];
                 }
-                requestBody.generationConfig = {
-                    temperature: 0.7,
-                    topP: 0.95,
-                    topK: 40,
-                    maxOutputTokens: 1024,
-                };
-                requestBody.safetySettings = [
-                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
-                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
-                ];
-            } else {
-                return res.status(500).json({
-                    error: 'No hay API keys disponibles para chat (Gemini o Groq). Contacta al administrador.'
-                });
+                break;
             }
+        }
+
+        if (!apiKey) {
+            return res.status(500).json({
+                error: `No hay API keys disponibles para chat. Proveedores detectados: ${providerPriority.length > 0 ? providerPriority.map(getProviderLabel).join(', ') : 'ninguno'}.`
+            });
         }
 
         console.log('\n=== Nueva petición de chat de soporte ===');
@@ -817,7 +859,7 @@ app.post('/api/ai/chat', rateLimiter, async (req, res) => {
 
         if (providerUsed === PROVIDERS.GEMINI) {
             currentUrl = `${endpointUsed}?key=${apiKey}`;
-        } else if (providerUsed === PROVIDERS.GROQ) {
+        } else if (providerUsed === PROVIDERS.GROQ || providerUsed === PROVIDERS.DEEPSEEK) {
             fetchOptions.headers['Authorization'] = `Bearer ${apiKey}`;
         }
 
@@ -873,10 +915,10 @@ app.post('/api/ai/chat', rateLimiter, async (req, res) => {
                 });
             }
             responseText_result = data.candidates[0]?.content?.parts?.[0]?.text || '';
-        } else if (providerUsed === PROVIDERS.GROQ) {
+        } else if (providerUsed === PROVIDERS.GROQ || providerUsed === PROVIDERS.DEEPSEEK) {
             if (!data.choices || data.choices.length === 0) {
                 return res.status(500).json({
-                    error: 'La IA (Groq) no generó una respuesta válida para el chat'
+                    error: `La IA (${providerUsed === PROVIDERS.DEEPSEEK ? 'DeepSeek' : 'Groq'}) no generó una respuesta válida para el chat`
                 });
             }
             responseText_result = data.choices[0]?.message?.content || '';
@@ -1026,15 +1068,32 @@ app.post('/api/ai/extract-pdf', upload.single('file'), async (req, res) => {
         const tier = USER_TIER.FREE;
         const funcType = FUNCTION_TYPE.GENERAL;
 
-        let apiKey = apiKeyManager.getApiKey(PROVIDERS.GROQ, tier, funcType);
-        let providerUsed = PROVIDERS.GROQ;
-        let endpointUsed = GROQ_ENDPOINT;
+        const providerPriority = getConfiguredPrimaryProviders(tier);
+        let apiKey;
+        let providerUsed;
+        let endpointUsed;
         let requestBody;
 
-        if (apiKey) {
-            console.log('Using Groq for PDF extraction');
+        for (const provider of providerPriority) {
+            apiKey = apiKeyManager.getApiKeyForProvider(provider, tier, funcType);
+            if (!apiKey && provider === PROVIDERS.GEMINI && AI_API_KEY_FALLBACK) {
+                apiKey = AI_API_KEY_FALLBACK;
+            }
+            if (apiKey) {
+                providerUsed = provider;
+                endpointUsed = provider === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT : (provider === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
+                break;
+            }
+        }
+
+        if (!apiKey) {
+            return res.status(500).json({ error: 'No hay API keys disponibles para extracción de PDF.' });
+        }
+
+        if (providerUsed === PROVIDERS.DEEPSEEK || providerUsed === PROVIDERS.GROQ) {
+            console.log(`Using ${providerUsed} for PDF extraction`);
             requestBody = {
-                model: GROQ_MODEL,
+                model: providerUsed === PROVIDERS.DEEPSEEK ? DEEPSEEK_MODEL : GROQ_MODEL,
                 messages: [
                     { role: "system", content: "Eres un experto en análisis de presupuestos de construcción. Devuelve SOLO JSON válido, sin markdown." },
                     { role: "user", content: prompt }
@@ -1046,14 +1105,6 @@ app.post('/api/ai/extract-pdf', upload.single('file'), async (req, res) => {
         } else {
             // Fallback a Gemini
             console.log('Using Gemini for PDF extraction');
-            providerUsed = PROVIDERS.GEMINI;
-            apiKey = apiKeyManager.getApiKey(PROVIDERS.GEMINI, tier, funcType);
-            endpointUsed = GEMINI_ENDPOINT;
-
-            if (!apiKey) {
-                return res.status(500).json({ error: 'No hay API keys disponibles para extracción de PDF.' });
-            }
-
             requestBody = {
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
@@ -1089,7 +1140,7 @@ app.post('/api/ai/extract-pdf', upload.single('file'), async (req, res) => {
 
         let extractedJsonString = '';
 
-        if (providerUsed === PROVIDERS.GROQ) {
+        if (providerUsed === PROVIDERS.GROQ || providerUsed === PROVIDERS.DEEPSEEK) {
             extractedJsonString = responseData.choices?.[0]?.message?.content;
         } else {
             extractedJsonString = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -1215,75 +1266,16 @@ app.post('/api/ai/pricesearch', rateLimiter, async (req, res) => {
         let requestBody;
         let maskedKey;
 
-        // PRIORIDAD: Intentar con Groq primero
-        apiKey = apiKeyManager.getApiKey(PROVIDERS.GROQ, tier, FUNCTION_TYPE.PRICE_SEARCH);
-        if (apiKey) {
-            providerUsed = PROVIDERS.GROQ;
-            endpointUsed = GROQ_ENDPOINT; // Endpoint de Groq
-            maskedKey = apiKeyManager.maskKey(apiKey);
+        const providerPriority = getConfiguredPrimaryProviders(tier);
 
-            const systemInstruction = `Eres un asistente experto en estimación de costos de construcción en México.
-Tu OBJETIVO PRINCIPAL es SIEMPRE proporcionar al menos 3 referencias de precios útiles, NUNCA devolver resultados vacíos.
-
-INSTRUCCIONES OBLIGATORIAS:
-1. Busca primero datos reales de tiendas mexicanas (Home Depot, Construrama, Coppel, Liverpool, etc.)
-2. Si NO encuentras datos exactos actuales, DEBES generar estimaciones basadas en:
-   - Precios históricos conocidos del material
-   - Rangos de mercado típicos en México para ese tipo de material
-   - Variaciones por región (urbano vs rural, norte vs sur)
-3. SIEMPRE devuelve EXACTAMENTE 3 opciones mínimo con diferentes rangos de precio
-4. Usa nombres descriptivos como: "Opción Económica", "Opción Estándar", "Opción Premium" O nombres de tiendas reales
-5. En "source" indica: nombre de tienda real O "Estimación de Mercado [Ciudad/Región]"
-6. Los precios deben ser realistas para México 2024-2025
-
-REGLA CRÍTICA DE UBICACIONES:
-- PRIORIDAD MÁXIMA: Usa las ubicaciones EXACTAS que el usuario especificó
-- Si el usuario pidió "San Juan Bautista Tuxtepec, Oaxaca", TODAS las opciones deben ser de esa ciudad/región
-- Solo si es IMPOSIBLE encontrar o estimar precios para esa ubicación específica, puedes incluir 1 opción de una ciudad cercana (indicando claramente que es alternativa)
-- NUNCA ignores las ubicaciones solicitadas y des precios de ciudades completamente diferentes
-
-FORMATO DE RESPUESTA (JSON PURO, SIN MARKDOWN):
-[
-  {
-    "name": "Nombre del producto o categoría",
-    "price": "$XXX.XX MXN" o "$XXX - $YYY MXN",
-    "location": "Ciudad o Región específica (DEBE COINCIDIR con la solicitada)",
-    "source": "Nombre de tienda o 'Estimación de Mercado [Región]'"
-  }
-]
-
-IMPORTANTE: Devuelve SOLO el array JSON, sin texto adicional, sin markdown, sin explicaciones.`;
-
-            const prompt = `Necesito precios de "${material}" en las siguientes ubicaciones ESPECÍFICAS: "${locations}".
-
-REQUISITOS ESTRICTOS:
-1. TODAS las opciones de precio deben ser para las ubicaciones que especifiqué arriba
-2. Busca primero tiendas reales en esas ubicaciones exactas (Home Depot, Construrama, ferreterías locales)
-3. Si no hay datos exactos, genera estimaciones de precio (Económico, Estándar, Premium) ESPECÍFICAS para esas ubicaciones
-4. Considera el costo de vida y mercado local de esas ciudades/regiones específicas
-5. Incluye la unidad de medida típica (m², kg, pieza, bulto, etc.)
-6. En el campo "location" usa EXACTAMENTE las ubicaciones que solicité
-
-PROHIBIDO: No me des precios de Ciudad de México, Guadalajara u otras ciudades si no las pedí.
-
-Devuelve SOLO un array JSON con mínimo 3 opciones de precio para las ubicaciones solicitadas.`;
-
-            requestBody = {
-                model: GROQ_MODEL, // Modelo de Groq actualizado
-                messages: [
-                    { role: "system", content: systemInstruction },
-                    { role: "user", content: prompt }
-                ],
-                temperature: 0.5, // Un poco más creativo para permitir estimaciones
-                max_tokens: 2048,
-                response_format: { type: "json_object" } // Solicitar JSON
-            };
-        } else {
-            // Si no hay Groq, intentar con Gemini
-            apiKey = apiKeyManager.getApiKey(PROVIDERS.GEMINI, tier, FUNCTION_TYPE.PRICE_SEARCH);
+        for (const provider of providerPriority) {
+            apiKey = apiKeyManager.getApiKeyForProvider(provider, tier, FUNCTION_TYPE.PRICE_SEARCH);
+            if (!apiKey && provider === PROVIDERS.GEMINI && AI_API_KEY_FALLBACK) {
+                apiKey = AI_API_KEY_FALLBACK;
+            }
             if (apiKey) {
-                providerUsed = PROVIDERS.GEMINI;
-                endpointUsed = GEMINI_ENDPOINT;
+                providerUsed = provider;
+                endpointUsed = provider === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT : (provider === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
                 maskedKey = apiKeyManager.maskKey(apiKey);
 
                 const systemInstruction = `Eres un asistente experto en estimación de costos de construcción en México.
@@ -1332,32 +1324,48 @@ PROHIBIDO: No me des precios de Ciudad de México, Guadalajara u otras ciudades 
 
 Devuelve SOLO un array JSON con mínimo 3 opciones de precio para las ubicaciones solicitadas.`;
 
-                requestBody = {
-                    contents: [{
-                        parts: [{ text: prompt }]
-                    }],
-                    systemInstruction: {
-                        parts: [{ text: systemInstruction }]
-                    },
-                    generationConfig: {
+                if (provider === PROVIDERS.DEEPSEEK || provider === PROVIDERS.GROQ) {
+                    requestBody = {
+                        model: provider === PROVIDERS.DEEPSEEK ? DEEPSEEK_MODEL : GROQ_MODEL,
+                        messages: [
+                            { role: "system", content: systemInstruction },
+                            { role: "user", content: prompt }
+                        ],
                         temperature: 0.5,
-                        topP: 0.9,
-                        topK: 32,
-                        maxOutputTokens: 2048,
-                        responseMimeType: "application/json",
-                    },
-                    safetySettings: [
-                        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
-                        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-                        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-                        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
-                    ],
-                };
-            } else {
-                return res.status(500).json({
-                    error: 'No hay API keys disponibles para búsqueda de precios (Gemini o Groq). Contacta al administrador.'
-                });
+                        max_tokens: 2048,
+                        response_format: { type: "json_object" }
+                    };
+                } else if (provider === PROVIDERS.GEMINI) {
+                    requestBody = {
+                        contents: [{
+                            parts: [{ text: prompt }]
+                        }],
+                        systemInstruction: {
+                            parts: [{ text: systemInstruction }]
+                        },
+                        generationConfig: {
+                            temperature: 0.5,
+                            topP: 0.9,
+                            topK: 32,
+                            maxOutputTokens: 2048,
+                            responseMimeType: "application/json",
+                        },
+                        safetySettings: [
+                            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+                            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+                            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+                            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+                        ],
+                    };
+                }
+                break;
             }
+        }
+
+        if (!apiKey) {
+            return res.status(500).json({
+                error: `No hay API keys disponibles para búsqueda de precios. Proveedores detectados: ${providerPriority.length > 0 ? providerPriority.map(getProviderLabel).join(', ') : 'ninguno'}.`
+            });
         }
 
         console.log('\n=== Nueva petición de búsqueda de precios ===');
@@ -1368,16 +1376,15 @@ Devuelve SOLO un array JSON con mínimo 3 opciones de precio para las ubicacione
         const fetchOptions = {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}` // Groq usa Authorization header
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(requestBody),
         };
 
-        // Para Gemini, la API key va en la URL
         if (providerUsed === PROVIDERS.GEMINI) {
-            fetchOptions.headers = { 'Content-Type': 'application/json' }; // Eliminar Auth header para Gemini
             endpointUsed = `${endpointUsed}?key=${apiKey}`;
+        } else {
+            fetchOptions.headers['Authorization'] = `Bearer ${apiKey}`;
         }
 
         const response = await fetch(endpointUsed, fetchOptions);
@@ -1432,10 +1439,10 @@ Devuelve SOLO un array JSON con mínimo 3 opciones de precio para las ubicacione
                 });
             }
             rawResponseText = data.candidates[0]?.content?.parts?.[0]?.text || '';
-        } else if (providerUsed === PROVIDERS.GROQ) {
+        } else if (providerUsed === PROVIDERS.GROQ || providerUsed === PROVIDERS.DEEPSEEK) {
             if (!data.choices || data.choices.length === 0) {
                 return res.status(500).json({
-                    error: 'La IA (Groq) no generó una respuesta válida para la búsqueda de precios'
+                    error: `La IA (${providerUsed === PROVIDERS.DEEPSEEK ? 'DeepSeek' : 'Groq'}) no generó una respuesta válida para la búsqueda de precios`
                 });
             }
             rawResponseText = data.choices[0]?.message?.content || '';
