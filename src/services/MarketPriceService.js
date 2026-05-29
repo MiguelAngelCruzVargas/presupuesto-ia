@@ -63,6 +63,53 @@ export class MarketPriceService {
             .slice(0, 5);
     }
 
+    static buildLocationVariants(location = APP_CONFIG.defaultCountry) {
+        const rawLocation = String(location || '').trim();
+        const normalizedLocation = this.normalizeText(rawLocation);
+        const simpleLocation = rawLocation.split(',')[0].trim();
+        const normalizedSimpleLocation = this.normalizeText(simpleLocation);
+
+        const variants = [];
+        const pushVariant = (value) => {
+            const cleaned = String(value || '').trim();
+            if (!cleaned) return;
+            if (!variants.includes(cleaned)) {
+                variants.push(cleaned);
+            }
+        };
+
+        if (normalizedLocation.includes('cdmx') || normalizedLocation.includes('ciudad de mexico')) {
+            pushVariant('CDMX');
+            pushVariant('Ciudad de México');
+        }
+
+        pushVariant(simpleLocation);
+        pushVariant(rawLocation);
+        pushVariant(this.getDefaultCountry());
+
+        return variants;
+    }
+
+    static async fetchByLocationVariants(baseQueryBuilder, location, limit) {
+        const variants = this.buildLocationVariants(location);
+
+        for (const variant of variants) {
+            const { data, error } = await baseQueryBuilder()
+                .ilike('location', `%${variant}%`)
+                .limit(limit);
+
+            if (error) {
+                throw error;
+            }
+
+            if (data && data.length > 0) {
+                return data;
+            }
+        }
+
+        return [];
+    }
+
     /**
      * Buscar precio de referencia por descripción, categoría y ubicación
      * Prioriza precios oficiales (CDMX Tabulador) sobre otras fuentes
@@ -80,46 +127,16 @@ export class MarketPriceService {
 
             const officialSources = ['cdmx_tabulador'];
             const isCDMX = location && (location.includes('CDMX') || location.includes('Ciudad de México'));
-
-            // Buscar todos los precios de la categoría
-            let query = supabase
+            const baseQueryBuilder = () => supabase
                 .from('market_price_reference')
                 .select('*')
                 .eq('category', category)
                 .eq('is_active', true);
 
-            // Filtrar por ubicación
-            let locationConditions = [];
-            if (isCDMX) {
-                locationConditions.push('location.ilike.%CDMX%');
-                locationConditions.push('location.ilike.%Ciudad de México%');
-                locationConditions.push(`location.eq.${this.getDefaultCountry()}`);
-            } else {
-                // Simplificar la ubicación para evitar errores con comas en Supabase
-                const simpleLocation = location.split(',')[0].trim();
-                const searchLocation = simpleLocation.includes('%') ? simpleLocation : `%${simpleLocation}%`;
-
-                // Usar comillas para manejar espacios y caracteres especiales
-                locationConditions.push(`location.ilike."${searchLocation}"`);
-                locationConditions.push(`location.eq.${this.getDefaultCountry()}`);
-            }
-            query = query.or(locationConditions.join(','));
-
-            const { data, error } = await query;
-            if (error) throw error;
+            const data = await this.fetchByLocationVariants(baseQueryBuilder, location, 200);
 
             if (!data || data.length === 0) {
-                // Fallback: buscar en "México" genérico
-                const { data: fallbackData, error: fallbackError } = await supabase
-                    .from('market_price_reference')
-                    .select('*')
-                    .eq('category', category)
-                    .eq('is_active', true)
-                    .eq('location', this.getDefaultCountry())
-                    .limit(limit);
-
-                if (fallbackError) throw fallbackError;
-                return fallbackData || [];
+                return [];
             }
 
             // Calcular relevancia y priorizar fuentes oficiales
@@ -332,35 +349,13 @@ export class MarketPriceService {
     static async getPricesByCategory(category, location = APP_CONFIG.defaultCountry, limit = 50) {
         try {
             const officialSources = ['cdmx_tabulador'];
-            const isCDMX = location && (location.includes('CDMX') || location.includes('Ciudad de México'));
-
-            let query = supabase
+            const baseQueryBuilder = () => supabase
                 .from('market_price_reference')
                 .select('*')
                 .eq('category', category)
                 .eq('is_active', true);
 
-            // Filtrar por ubicación
-            let locationConditions = [];
-            if (isCDMX) {
-                locationConditions.push('location.ilike.%CDMX%');
-                locationConditions.push('location.ilike.%Ciudad de México%');
-                locationConditions.push(`location.eq.${this.getDefaultCountry()}`);
-            } else {
-                // Simplificar la ubicación para evitar errores con comas en Supabase
-                // Ej: "Loma Bonita, Oaxaca" -> "Loma Bonita"
-                const simpleLocation = location.split(',')[0].trim();
-                const searchLocation = simpleLocation.includes('%') ? simpleLocation : `%${simpleLocation}%`;
-
-                // Usar comillas para manejar espacios y caracteres especiales
-                locationConditions.push(`location.ilike."${searchLocation}"`);
-                locationConditions.push(`location.eq.${this.getDefaultCountry()}`);
-            }
-
-            query = query.or(locationConditions.join(','));
-
-            const { data, error } = await query;
-            if (error) throw error;
+            const data = await this.fetchByLocationVariants(baseQueryBuilder, location, Math.max(limit, 200));
 
             if (!data || data.length === 0) {
                 return [];
