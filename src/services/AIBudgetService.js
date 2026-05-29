@@ -1,5 +1,5 @@
 /**
- * AIBudgetService
+ * AIBudgetServices
  * Centralized service for AI-powered budget generation and analysis
  * Uses BackendAIService to keep API keys secure
  */
