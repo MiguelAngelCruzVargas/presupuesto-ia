@@ -716,8 +716,8 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
         }
 
         let finalResponseData;
-        let responseText = '';
-        let responseFinishReason = null;
+        let aiText = '';
+        let aiFinishReason = null;
 
         if (providerUsed === PROVIDERS.GEMINI) {
             if (!data.candidates || data.candidates.length === 0) {
@@ -725,8 +725,8 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                     error: 'La IA (Gemini) no generó una respuesta válida'
                 });
             }
-            responseText = data.candidates[0]?.content?.parts?.[0]?.text || '';
-            responseFinishReason = data.candidates[0]?.finishReason || null;
+            aiText = data.candidates[0]?.content?.parts?.[0]?.text || '';
+            aiFinishReason = data.candidates[0]?.finishReason || null;
             finalResponseData = data;
         } else if (providerUsed === PROVIDERS.GROQ || providerUsed === PROVIDERS.DEEPSEEK) {
             if (!data.choices || data.choices.length === 0) {
@@ -734,21 +734,21 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                     error: `La IA (${providerUsed === PROVIDERS.DEEPSEEK ? 'DeepSeek' : 'Groq'}) no generó una respuesta válida`
                 });
             }
-            responseText = data.choices[0]?.message?.content || '';
-            responseFinishReason = data.choices[0]?.finish_reason || null;
+            aiText = data.choices[0]?.message?.content || '';
+            aiFinishReason = data.choices[0]?.finish_reason || null;
             // Normalizar respuesta a formato Gemini
             finalResponseData = {
                 candidates: [{
                     content: {
-                        parts: [{ text: responseText }]
+                        parts: [{ text: aiText }]
                     },
-                    finishReason: responseFinishReason
+                    finishReason: aiFinishReason
                 }],
             };
         }
 
         // Detección genérica de respuesta vacía para CUALQUIER proveedor
-        if (!responseText && !responseFinishReason) {
+        if (!aiText && !aiFinishReason) {
             const providerLabel = providerUsed === PROVIDERS.DEEPSEEK ? 'DeepSeek' : (providerUsed === PROVIDERS.GROQ ? 'Groq' : 'Gemini');
             console.warn(`⚠️ ${providerLabel} devolvió texto vacío sin finishReason. Probable prompt excede límite. Reintentando con siguiente proveedor...`);
 
