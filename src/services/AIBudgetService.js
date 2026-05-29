@@ -294,7 +294,17 @@ INSTRUCCIONES CLAVE:
                 throw new Error(`No se recibió texto de la IA. Razón: ${candidate?.finishReason || 'Desconocida'}`);
             }
 
-            const generatedItems = this.parseBudgetItemsResponse(text);
+            let generatedItems;
+            try {
+                generatedItems = this.parseBudgetItemsResponse(text);
+            } catch (parseError) {
+                console.warn('⚠️ Respuesta IA no parseable en primer intento. Intentando reparación estructural...');
+                generatedItems = await this.repairAndParseBudgetItemsResponse(text, {
+                    prompt,
+                    projectType: this.resolveProjectType(projectInfo),
+                    location
+                });
+            }
 
             // Validate and add IDs
             let itemsWithIds = generatedItems
@@ -462,7 +472,10 @@ INSTRUCCIONES CLAVE:
         } catch (error) {
             ErrorService.logError(error, 'AIBudgetService.generateBudgetFromPrompt', {
                 prompt,
-                projectType: projectInfo.type
+                projectType: projectInfo.type,
+                rawResponseSnippet: error?.rawResponseText
+                    ? String(error.rawResponseText).slice(0, 1200)
+                    : undefined
             });
             throw error;
         }
@@ -2184,7 +2197,53 @@ CRITERIO DE SALIDA:
             }
         }
 
-        throw new Error('No se pudo parsear la respuesta de la IA como JSON');
+        const parseError = new Error('No se pudo parsear la respuesta de la IA como JSON');
+        parseError.rawResponseText = text;
+        throw parseError;
+    }
+
+    static async repairAndParseBudgetItemsResponse(rawText, context = {}) {
+        const systemInstruction = `Eres un normalizador de salidas de IA para un sistema de presupuestos.
+Tu tarea es convertir texto desordenado en JSON válido.
+
+Reglas:
+1. Devuelve SOLO JSON válido.
+2. El resultado debe ser un array de partidas o un objeto con la clave "items".
+3. Conserva únicamente las claves: "description", "unit", "unitPrice", "category", "quantity", "calculation_basis", "isCatalogItem".
+4. Elimina markdown, comentarios, explicaciones, encabezados y texto suelto.
+5. No inventes partidas nuevas si ya existen en el contenido original.`;
+
+        const repairPrompt = `Normaliza la siguiente salida de IA a JSON válido para presupuesto.
+
+CONTEXTO:
+- Solicitud del usuario: ${context.prompt || 'No especificada'}
+- Especialidad: ${context.projectType || 'General'}
+- Ubicación: ${context.location || APP_CONFIG.defaultCountry}
+
+SALIDA ORIGINAL:
+${rawText}
+
+Devuelve SOLO JSON válido.`;
+
+        const repairResult = await ErrorService.withRetry(
+            () => BackendAIService.sendPrompt(repairPrompt, systemInstruction, { cache: false }),
+            1,
+            500
+        );
+
+        const repairedText = repairResult.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (!repairedText) {
+            const repairError = new Error('No se pudo reparar la respuesta de la IA como JSON');
+            repairError.rawResponseText = rawText;
+            throw repairError;
+        }
+
+        try {
+            return this.parseBudgetItemsResponse(repairedText);
+        } catch (error) {
+            error.rawResponseText = `${rawText}\n\n--- REPAIR ATTEMPT ---\n${repairedText}`;
+            throw error;
+        }
     }
 
     static normalizeBudgetItemsPayload(payload) {
