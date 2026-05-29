@@ -225,25 +225,27 @@ export class AIBudgetService {
         REGLAS TÉCNICAS:
         ${specificRules}
         
-        REGLAS DE ORO NEODATA (ESTRICTO):
-        1. Toda descripción DEBE iniciar con un verbo infinitivo técnico: "Suministro y colocación...", "Construcción de...", "Aplicación de...".
-        2. Prohibido usar descripciones de menos de 15 palabras.
-        3. El alcance debe ser explícito: "incluye: materiales, desperdicios, mano de obra, herramienta, equipo de seguridad y limpieza."
+        REGLAS DE ORO ESTILO CONSTRUBASE / ADES (ESTRICTO):
+        1. Toda descripción DEBE iniciar con un verbo infinitivo técnico: "Suministro y colocación...", "Construcción de...", "Aplicación de...", "Excavación de...", "Trazo y nivelación de...".
+        2. CONCISIÓN: La descripción debe ser concisa, técnica y directa (máximo 35 palabras o 220 caracteres). No escribas párrafos largos.
+        3. PROHIBICIÓN ABSOLUTA DE RECOMENDACIONES/CONSEJOS: Está estrictamente PROHIBIDO incluir consejos de diseño, notas parentéticas con recomendaciones locales, sugerencias de materiales según el tipo de suelo o comentarios informales (ej. NO escribir cosas como "impermeabilizante integral recomendable para suelos Loma Bonita" ni sugerir marcas comerciales o dar consejos al usuario).
+        4. El alcance debe ser puntual: "incluye: materiales, mano de obra, herramienta y equipo." Evita desgloses innecesarios que alarguen la descripción.
                 `;
             };
 
             const specialtyInstructions = getSpecialtyInstructions(projectInfo.type);
 
-            const systemPrompt = `Eres el Director de Costos Senior en una constructora mexicana, experto en NEODATA 2026.
-Tu misión es generar presupuestos que parezcan sacados de una licitación oficial.
+            const systemPrompt = `Eres el Director de Costos Senior en una constructora mexicana, experto en costos de construcción, base de datos Construbase / Ades y NEODATA.
+Tu misión es generar descripciones de conceptos de obra que sean profesionales, directas y estándar de la industria.
 
 ${specialtyInstructions}
 
 ⚠️ PROTOCOLO DE GENERACIÓN EXPERTA:
-1. **DESCRIBE COMO INGENIERO**: No aceptes "Cable 14". Escribe "Suministro y colocación de conductor de cobre con aislamiento termoplástico...".
-2. **AUTO-DESGLOSE**: Si el usuario pide un concepto complejo (ej: "Barda"), genera AUTOMÁTICAMENTE: 1. Excavación, 2. Cimentación, 3. Muro y 4. Castillos.
-3. **MÉTRICA EXACTA**: Si hay dimensiones (ej: 4x5m), calcula el área y ponla en 'quantity'. Escribe la fórmula en 'calculation_basis'.
-4. **PRIORIDAD DE CATÁLOGO**: Si el Catálogo Maestro tiene conceptos similares, COPIA su estilo técnico de redacción.
+1. **DESCRIBE COMO INGENIERO**: No aceptes "Cable 14". Escribe "Suministro y colocación de conductor de cobre cal. 14 AWG...".
+2. **CONCISIÓN Y OBJETIVIDAD**: Las descripciones deben ser breves, estructuradas y objetivas (como en Construbase). Nunca incluyas comentarios personales, opiniones o sugerencias del tipo de suelo del cliente (ej. Loma Bonita).
+3. **AUTO-DESGLOSE**: Si el usuario pide un concepto complejo (ej: "Barda"), genera AUTOMÁTICAMENTE: 1. Excavación, 2. Cimentación, 3. Muro y 4. Castillos.
+4. **MÉTRICA EXACTA**: Si hay dimensiones (ej: 4x5m), calcula el área y ponla en 'quantity'. Escribe la fórmula en 'calculation_basis'.
+5. **PRIORIDAD DE CATÁLOGO**: Si el Catálogo Maestro o Precios de Referencia tienen conceptos similares, COPIA exactamente su redacción corta y su precio.
 
 Retorna UNICAMENTE el JSON array estructurado. No hables fuera del JSON.`;
 
@@ -323,19 +325,45 @@ INSTRUCCIONES CLAVE:
                     isCatalogItem: item.isCatalogItem || false
                 }));
 
-            // POST-PROCESAMIENTO: Reemplazar precios generados con precios exactos de la Base Maestra
-            // Esto asegura máxima consistencia cuando los precios ya existen en la base
+            // POST-PROCESAMIENTO: Reemplazar precios, descripciones y unidades con los de la Base Maestra
+            // Esto asegura máxima consistencia y que se usen los conceptos reales de Construbase/Ades/Tabulador CDMX
             if (basePrices && Object.keys(basePrices).length > 0) {
-                console.log('🔍 Post-procesando: Buscando precios exactos en Base Maestra para mayor consistencia...');
+                console.log('🔍 Post-procesando: Buscando coincidencias en Base Maestra para mayor consistencia...');
 
                 const location = this.resolveLocation(projectInfo, config.location);
-                let replacedCount = 0;
+                let priceReplacedCount = 0;
+                let descReplacedCount = 0;
+
+                // Función auxiliar para calcular similitud Jaccard de palabras significativas (>3 letras)
+                const getJaccardSimilarity = (str1, str2) => {
+                    const normalize = (text) => String(text || '')
+                        .toLowerCase()
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .replace(/[^a-z0-9\s]/g, ' ')
+                        .split(/\s+/)
+                        .filter(w => w.length > 3);
+                    
+                    const words1 = new Set(normalize(str1));
+                    const words2 = new Set(normalize(str2));
+                    
+                    if (words1.size === 0 || words2.size === 0) return 0;
+                    
+                    let intersection = 0;
+                    for (const w of words1) {
+                        if (words2.has(w)) {
+                            intersection++;
+                        }
+                    }
+                    const union = new Set([...words1, ...words2]).size;
+                    return intersection / union;
+                };
 
                 for (const item of itemsWithIds) {
                     // Solo buscar si no es un item del catálogo del usuario (esos ya son correctos)
                     if (!item.isCatalogItem) {
                         try {
-                            // Buscar precio exacto en la base maestra
+                            // Buscar precio exacto / mejor coincidencia en la base maestra
                             const exactPrice = await MarketPriceService.findReferencePrice(
                                 item.description,
                                 item.category || 'Materiales',
@@ -344,43 +372,56 @@ INSTRUCCIONES CLAVE:
                             );
 
                             if (exactPrice && exactPrice.length > 0 && exactPrice[0].base_price) {
-                                const referencePrice = parseFloat(exactPrice[0].base_price);
+                                const matchedRecord = exactPrice[0];
+                                const referencePrice = parseFloat(matchedRecord.base_price);
                                 const generatedPrice = item.unitPrice;
+                                const similarity = getJaccardSimilarity(item.description, matchedRecord.description);
 
-                                // Si el precio de la base maestra está disponible y la unidad coincide
-                                if (exactPrice[0].unit === item.unit || !exactPrice[0].unit) {
-                                    // Reemplazar con el precio exacto de la base maestra
+                                // Si la similitud es alta (>= 0.35), reemplazamos la descripción y la unidad con las oficiales de la base
+                                if (similarity >= 0.35) {
+                                    const oldDesc = item.description;
+                                    item.description = matchedRecord.description;
+                                    item.unit = matchedRecord.unit || item.unit;
                                     item.unitPrice = referencePrice;
-
-                                    // Actualizar calculation_basis para indicar que viene de la base maestra
-                                    const sourceName = exactPrice[0].source === 'cdmx_tabulador'
+                                    
+                                    const sourceName = matchedRecord.source === 'cdmx_tabulador'
                                         ? 'Tabulador Oficial CDMX'
-                                        : exactPrice[0].source === 'construbase_libre'
-                                            ? 'CONSTRUBASE'
+                                        : matchedRecord.source === 'construbase_libre'
+                                            ? 'CONSTRUBASE/ADES'
                                             : 'Base de Datos Maestra';
 
-                                    if (!item.calculation_basis.includes(sourceName)) {
-                                        item.calculation_basis = `${item.calculation_basis || ''} [Precio exacto de ${sourceName}]`.trim();
-                                    }
+                                    item.calculation_basis = `[Coincidencia exacta con ${sourceName}] ${item.calculation_basis || ''}`.trim();
+                                    descReplacedCount++;
+                                    priceReplacedCount++;
 
-                                    replacedCount++;
+                                    console.log(`   📝 Reemplazada descripción y precio por coincidencia (similitud: ${(similarity * 100).toFixed(0)}%):`);
+                                    console.log(`      Original: "${oldDesc.substring(0, 80)}..."`);
+                                    console.log(`      Base Maestra: "${matchedRecord.description.substring(0, 80)}..."`);
+                                } else {
+                                    // Si la similitud no es tan alta pero el precio/unidad coincide o es una aproximación razonable
+                                    if (matchedRecord.unit === item.unit || !matchedRecord.unit) {
+                                        item.unitPrice = referencePrice;
+                                        const sourceName = matchedRecord.source === 'cdmx_tabulador'
+                                            ? 'Tabulador Oficial CDMX'
+                                            : matchedRecord.source === 'construbase_libre'
+                                                ? 'CONSTRUBASE'
+                                                : 'Base de Datos Maestra';
 
-                                    // Si el precio cambió significativamente, loguearlo
-                                    const priceDiff = Math.abs(referencePrice - generatedPrice) / generatedPrice;
-                                    if (priceDiff > 0.1) { // Más del 10% de diferencia
-                                        console.log(`   ✅ Reemplazado: "${item.description.substring(0, 50)}..." - IA: $${generatedPrice.toFixed(2)} → Base: $${referencePrice.toFixed(2)}`);
+                                        if (!item.calculation_basis.includes(sourceName)) {
+                                            item.calculation_basis = `${item.calculation_basis || ''} [Precio de ${sourceName}]`.trim();
+                                        }
+                                        priceReplacedCount++;
                                     }
                                 }
                             }
                         } catch (error) {
-                            // Continuar si hay error en la búsqueda de un item específico
                             console.warn(`   ⚠️ Error buscando precio para "${item.description}":`, error.message);
                         }
                     }
                 }
 
-                if (replacedCount > 0) {
-                    console.log(`✅ ${replacedCount} precio(s) reemplazado(s) con valores exactos de la Base Maestra para mayor consistencia`);
+                if (priceReplacedCount > 0 || descReplacedCount > 0) {
+                    console.log(`✅ Post-procesamiento completo: ${descReplacedCount} descripción(es) y ${priceReplacedCount} precio(s) reemplazados con la Base Maestra (Construbase/Ades/Tabulador)`);
                 }
             }
 
