@@ -20,8 +20,9 @@ export class AIBudgetService {
     ];
 
     static BUDGET_COMPLEXITY_RULES = {
-        minItemsForComplexScope: 8,
-        maxZeroValueItemsBeforeRepair: 0,
+        minItemsForComplexScope: 6,
+        maxZeroValueItemsBeforeRepair: 2,
+        minZeroValueRatioBeforeRepair: 0.35,
         keywordsForComplexScope: [
             'casa', 'habitacion', 'vivienda', 'obra negra', 'recamara', 'recámaras',
             'bano', 'baño', 'sala', 'comedor', 'cocina', 'castillo', 'cadena',
@@ -310,10 +311,12 @@ INSTRUCCIONES CLAVE:
             }
 
             let generatedItems;
+            let usedStructuralRepair = false;
             try {
                 generatedItems = this.parseBudgetItemsResponse(text);
             } catch (parseError) {
-                console.warn('⚠️ Respuesta IA no parseable en primer intento. Intentando reparación estructural...');
+                console.info('ℹ️ Respuesta IA no parseable en primer intento. Intentando reparación estructural...');
+                usedStructuralRepair = true;
                 generatedItems = await this.repairAndParseBudgetItemsResponse(text, {
                     prompt,
                     projectType: this.resolveProjectType(projectInfo),
@@ -322,8 +325,8 @@ INSTRUCCIONES CLAVE:
             }
 
             const qualityIssues = this.analyzeGeneratedBudgetQuality(generatedItems, prompt);
-            if (qualityIssues.requiresRepair) {
-                console.warn('⚠️ Presupuesto generado con calidad insuficiente. Intentando enriquecimiento...', qualityIssues);
+            if (qualityIssues.requiresRepair && !usedStructuralRepair) {
+                console.info('ℹ️ Presupuesto generado con calidad insuficiente. Intentando enriquecimiento...', qualityIssues);
                 generatedItems = await this.enrichBudgetItemsWithAI({
                     prompt,
                     projectInfo,
@@ -2280,6 +2283,7 @@ Devuelve SOLO JSON válido.`;
             const unitPrice = parseFloat(item?.unitPrice) || 0;
             return quantity <= 0 || unitPrice <= 0;
         });
+        const zeroValueRatio = safeItems.length > 0 ? zeroValueItems.length / safeItems.length : 0;
 
         const normalizedPrompt = String(sourcePrompt || '').toLowerCase();
         const hasComplexScope = this.BUDGET_COMPLEXITY_RULES.keywordsForComplexScope.some(keyword =>
@@ -2288,8 +2292,13 @@ Devuelve SOLO JSON válido.`;
 
         const missingBasisItems = safeItems.filter(item => !(item?.calculation_basis || '').trim());
         const tooFewItemsForComplexScope = hasComplexScope && safeItems.length < this.BUDGET_COMPLEXITY_RULES.minItemsForComplexScope;
+        const severeZeroValueIssue =
+            zeroValueItems.length > this.BUDGET_COMPLEXITY_RULES.maxZeroValueItemsBeforeRepair &&
+            zeroValueRatio >= this.BUDGET_COMPLEXITY_RULES.minZeroValueRatioBeforeRepair;
+        const emptyBudget = safeItems.length === 0;
         const requiresRepair =
-            zeroValueItems.length > this.BUDGET_COMPLEXITY_RULES.maxZeroValueItemsBeforeRepair ||
+            emptyBudget ||
+            severeZeroValueIssue ||
             tooFewItemsForComplexScope;
 
         return {
@@ -2297,8 +2306,10 @@ Devuelve SOLO JSON válido.`;
             hasComplexScope,
             itemCount: safeItems.length,
             zeroValueCount: zeroValueItems.length,
+            zeroValueRatio,
             missingBasisCount: missingBasisItems.length,
-            tooFewItemsForComplexScope
+            tooFewItemsForComplexScope,
+            emptyBudget
         };
     }
 
