@@ -294,28 +294,7 @@ INSTRUCCIONES CLAVE:
                 throw new Error(`No se recibió texto de la IA. Razón: ${candidate?.finishReason || 'Desconocida'}`);
             }
 
-            // Clean and parse JSON
-            const cleanJson = text
-                .replace(/```json/g, '')
-                .replace(/```/g, '')
-                .trim();
-
-            let generatedItems;
-            try {
-                generatedItems = JSON.parse(cleanJson);
-            } catch (parseError) {
-                // Try to extract JSON from text if it's embedded
-                const jsonMatch = cleanJson.match(/\[[\s\S]*\]/);
-                if (jsonMatch) {
-                    generatedItems = JSON.parse(jsonMatch[0]);
-                } else {
-                    throw new Error('No se pudo parsear la respuesta de la IA como JSON');
-                }
-            }
-
-            if (!Array.isArray(generatedItems)) {
-                throw new Error('La respuesta de la IA no es un array válido');
-            }
+            const generatedItems = this.parseBudgetItemsResponse(text);
 
             // Validate and add IDs
             let itemsWithIds = generatedItems
@@ -2184,6 +2163,107 @@ CRITERIO DE SALIDA:
         return !Number.isNaN(numericValue) && numericValue > 0 ? numericValue : null;
     }
 
+    static parseBudgetItemsResponse(text) {
+        const cleanText = this.cleanJson(text);
+        const candidates = [
+            cleanText,
+            ...this.extractBalancedJsonCandidates(cleanText)
+        ];
+
+        for (const candidate of candidates) {
+            if (!candidate) continue;
+
+            try {
+                const parsed = JSON.parse(candidate);
+                const normalized = this.normalizeBudgetItemsPayload(parsed);
+                if (normalized) {
+                    return normalized;
+                }
+            } catch {
+                // Seguir intentando con otras variantes.
+            }
+        }
+
+        throw new Error('No se pudo parsear la respuesta de la IA como JSON');
+    }
+
+    static normalizeBudgetItemsPayload(payload) {
+        if (Array.isArray(payload)) {
+            return payload;
+        }
+
+        if (!payload || typeof payload !== 'object') {
+            return null;
+        }
+
+        const arrayKeys = ['items', 'concepts', 'partidas', 'data', 'result', 'presupuesto'];
+        for (const key of arrayKeys) {
+            if (Array.isArray(payload[key])) {
+                return payload[key];
+            }
+        }
+
+        return null;
+    }
+
+    static extractBalancedJsonCandidates(text) {
+        const candidates = [];
+        const seen = new Set();
+        const stack = [];
+        let startIndex = -1;
+        let inString = false;
+        let escaped = false;
+
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (char === '\\') {
+                    escaped = true;
+                } else if (char === '"') {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (char === '"') {
+                inString = true;
+                continue;
+            }
+
+            if (char === '[' || char === '{') {
+                if (stack.length === 0) {
+                    startIndex = i;
+                }
+                stack.push(char);
+                continue;
+            }
+
+            if (char === ']' || char === '}') {
+                const last = stack[stack.length - 1];
+                const isMatchingPair = (last === '[' && char === ']') || (last === '{' && char === '}');
+
+                if (!isMatchingPair) {
+                    continue;
+                }
+
+                stack.pop();
+                if (stack.length === 0 && startIndex >= 0) {
+                    const fragment = text.slice(startIndex, i + 1).trim();
+                    if (fragment && !seen.has(fragment)) {
+                        seen.add(fragment);
+                        candidates.push(fragment);
+                    }
+                    startIndex = -1;
+                }
+            }
+        }
+
+        return candidates;
+    }
+
     /**
      * Suggest price range based on catalog and context (Ported from GeminiService)
      * @param {Object} itemData - Item information
@@ -2350,6 +2430,7 @@ Reglas:
     static cleanJson(text) {
         return text
             .replace(/```json/g, '')
+            .replace(/```JSON/g, '')
             .replace(/```/g, '')
             .trim();
     }
