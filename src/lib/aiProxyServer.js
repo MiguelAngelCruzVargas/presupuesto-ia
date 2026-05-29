@@ -716,12 +716,17 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
         }
 
         let finalResponseData;
+        let responseText = '';
+        let responseFinishReason = null;
+
         if (providerUsed === PROVIDERS.GEMINI) {
             if (!data.candidates || data.candidates.length === 0) {
                 return res.status(500).json({
                     error: 'La IA (Gemini) no generó una respuesta válida'
                 });
             }
+            responseText = data.candidates[0]?.content?.parts?.[0]?.text || '';
+            responseFinishReason = data.candidates[0]?.finishReason || null;
             finalResponseData = data;
         } else if (providerUsed === PROVIDERS.GROQ || providerUsed === PROVIDERS.DEEPSEEK) {
             if (!data.choices || data.choices.length === 0) {
@@ -729,14 +734,95 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                     error: `La IA (${providerUsed === PROVIDERS.DEEPSEEK ? 'DeepSeek' : 'Groq'}) no generó una respuesta válida`
                 });
             }
-            // Adaptar la respuesta de Groq/DeepSeek para que sea similar a la de Gemini si es posible
+            responseText = data.choices[0]?.message?.content || '';
+            responseFinishReason = data.choices[0]?.finish_reason || null;
+            // Normalizar respuesta a formato Gemini
             finalResponseData = {
                 candidates: [{
                     content: {
-                        parts: [{ text: data.choices[0]?.message?.content || '' }]
-                    }
+                        parts: [{ text: responseText }]
+                    },
+                    finishReason: responseFinishReason
                 }],
             };
+        }
+
+        // Detección genérica de respuesta vacía para CUALQUIER proveedor
+        if (!responseText && !responseFinishReason) {
+            const providerLabel = providerUsed === PROVIDERS.DEEPSEEK ? 'DeepSeek' : (providerUsed === PROVIDERS.GROQ ? 'Groq' : 'Gemini');
+            console.warn(`⚠️ ${providerLabel} devolvió texto vacío sin finishReason. Probable prompt excede límite. Reintentando con siguiente proveedor...`);
+
+            let fallbackKey = null;
+            let fallbackProvider = null;
+            const currentIdx = providerPriority.indexOf(providerUsed);
+            for (let i = currentIdx + 1; i < providerPriority.length; i++) {
+                const nextProvider = providerPriority[i];
+                const nextKey = apiKeyManager.getApiKeyForProvider(nextProvider, tier, funcType);
+                if (!nextKey && nextProvider === PROVIDERS.GEMINI && AI_API_KEY_FALLBACK) {
+                    fallbackKey = AI_API_KEY_FALLBACK;
+                    fallbackProvider = nextProvider;
+                    break;
+                }
+                if (nextKey) {
+                    fallbackKey = nextKey;
+                    fallbackProvider = nextProvider;
+                    break;
+                }
+            }
+
+            if (fallbackKey && fallbackProvider) {
+                try {
+                    const fallbackEndpoint = fallbackProvider === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT
+                        : (fallbackProvider === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
+                    const fallbackBody = buildAIRequestBody(fallbackProvider, { prompt, systemInstruction });
+                    const fallbackFetchOpts = {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(fallbackBody),
+                    };
+
+                    let fallbackUrl = fallbackEndpoint;
+                    if (fallbackProvider === PROVIDERS.GEMINI) {
+                        fallbackUrl = `${fallbackEndpoint}?key=${fallbackKey}`;
+                    } else {
+                        fallbackFetchOpts.headers['Authorization'] = `Bearer ${fallbackKey}`;
+                    }
+
+                    const fallbackRes = await fetch(fallbackUrl, fallbackFetchOpts);
+                    if (fallbackRes.ok) {
+                        const fallbackRaw = await fallbackRes.text();
+                        const fallbackData = JSON.parse(fallbackRaw);
+
+                        let fallbackText = '';
+                        if (fallbackProvider === PROVIDERS.GEMINI) {
+                            fallbackText = fallbackData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                        } else {
+                            fallbackText = fallbackData.choices?.[0]?.message?.content || '';
+                        }
+
+                        if (fallbackText) {
+                            const fbLabel = fallbackProvider === PROVIDERS.DEEPSEEK ? 'DeepSeek' : (fallbackProvider === PROVIDERS.GROQ ? 'Groq' : 'Gemini');
+                            console.log(`✅ Fallback exitoso a ${fbLabel}`);
+                            finalResponseData = {
+                                candidates: [{
+                                    content: { parts: [{ text: fallbackText }] },
+                                    finishReason: null
+                                }],
+                            };
+                            return res.json(finalResponseData);
+                        }
+                    }
+                    const fbLabel = fallbackProvider === PROVIDERS.DEEPSEEK ? 'DeepSeek' : (fallbackProvider === PROVIDERS.GROQ ? 'Groq' : 'Gemini');
+                    console.warn(`⚠️ Fallback a ${fbLabel} también falló`);
+                } catch (fbErr) {
+                    console.warn(`⚠️ Error en fallback:`, fbErr.message);
+                }
+            }
+
+            const providerLabel2 = providerUsed === PROVIDERS.DEEPSEEK ? 'DeepSeek' : (providerUsed === PROVIDERS.GROQ ? 'Groq' : 'Gemini');
+            return res.status(500).json({
+                error: `La IA (${providerLabel2}) devolvió una respuesta vacía. Posiblemente el prompt es demasiado largo. Intenta con una solicitud más corta o específica.`
+            });
         }
 
         console.log(`Respuesta exitosa de ${providerUsed} API`);

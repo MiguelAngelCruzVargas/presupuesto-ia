@@ -70,112 +70,100 @@ export class AIBudgetService {
                 ? `\n\nCATÁLOGO MAESTRO DISPONIBLE (${catalogCount} partidas más relevantes):\n${catalogContext}\n\nIMPORTANTE: Si encuentras coincidencias en el catálogo, DEBES usar los datos exactos (descripción, unidad, precio, categoría) y marcar "isCatalogItem": true.`
                 : '\n\nNOTA: No hay catálogo disponible. Genera precios basados en estándares de la industria.';
 
-            // Dynamic Price Injection - Cargar precios del Tabulador Oficial CDMX y otras fuentes
+            // Dynamic Price Injection - Cargar SOLO precios relevantes al prompt
             let basePrices = config.basePrices;
-            let officialPrices = {};
 
             if (!basePrices) {
-                // Obtener precios del Tabulador Oficial CDMX (PRIORIDAD MÁXIMA)
-                const categories = ['Materiales', 'Mano de Obra', 'Obra Civil', 'Instalaciones', 'Equipos'];
-                const referencePricesByCategory = {};
-                const officialPricesByCategory = {};
+                const ALL_CATEGORIES = ['Materiales', 'Mano de Obra', 'Obra Civil', 'Instalaciones', 'Equipos'];
 
-                // Cargar TODAS las categorías siempre (el tabulador CDMX tiene miles de conceptos)
-                const categoriesToSearch = categories;
+                // Detectar categorías relevantes del prompt del usuario (máximo 3)
+                const promptLower = prompt.toLowerCase();
+                const categoryKeywords = {
+                    'Materiales': ['material', 'block', 'cemento', 'varilla', 'acero', 'arena', 'grava', 'tabique', 'ladrillo', 'mortero', 'concreto', 'cable', 'tubería', 'tubo', 'pintura', 'impermeabilizante', 'sellador', 'pegamento', 'madera', 'triplay', 'panel', 'perfil', 'drywall', 'yeso', 'cerámica', 'loseta', 'piso', 'muro', 'cancel', 'ventana', 'puerta', 'vidrio', 'aluminio', 'herrería', 'fierro'],
+                    'Mano de Obra': ['mano de obra', 'cuadrilla', 'oficial', 'ayudante', 'peón', 'albañil', 'electricista', 'plomero', 'yesero', 'pintor', 'herrero', 'carpintero', 'instalador', 'colocación', 'instalación', 'aplicación', 'peinado', 'acabado', 'aplanado', 'enjarre', 'em pastado', 'cimbrado', 'armado', 'habilitado', 'colado', 'demolición', 'excavación', 'relleno', 'compactación', 'acarreo', 'limpieza', 'trazo', 'nivelación', 'construcción'],
+                    'Obra Civil': ['obra civil', 'obra negra', 'cimentación', 'estructura', 'castillo', 'cadena', 'trabe', 'columna', 'losa', 'cimentación', 'zapata', 'contrat rabe', 'muro', 'barda', 'firme', 'pavimento', 'banqueta', 'guarnición', 'drenaje', 'alcantarillado', 'pozo', 'registro', 'cisterna', 'terracería', 'desmonte', 'despalme', 'excavación', 'relleno', 'compactación', 'base hidráulica', 'carpeta asfáltica', 'concreto hidráulico', 'mampostería', 'mamposteo', 'talud', 'gavión'],
+                    'Instalaciones': ['instalación', 'eléctrica', 'hidrosanitaria', 'sanitaria', 'hidráulica', 'gas', 'fontanería', 'plomería', 'tubería', 'tubo', 'cable', 'conduit', 'contacto', 'apagador', 'luminaria', 'lámpara', 'tablero', 'breaker', 'pastilla', 'interruptor', 'tomacorriente', 'wc', 'lavabo', 'regadera', 'calentador', 'tinaco', 'bomba', 'cisterna', 'tubería', 'toma', 'descarga', 'ventilación', 'registro', 'tubería', 'tuberías', 'conexión', 'válvula', 'fluxómetro', 'mingitorio', 'tarja', 'fregadero', 'cocina', 'aire acondicionado', 'clima', 'minisplit', 'ducto', 'rejilla', 'difusor', 'extractor', 'ventilador'],
+                    'Equipos': ['equipo', 'maquinaria', 'retroexcavadora', 'compactador', 'bailarina', 'revolvedora', 'vibrador', 'andamio', 'cimbra', 'bomba', 'malacate', 'grúa', 'montacargas', 'plataforma', 'elevador', 'compresor', 'generador', 'planta', 'soldadura', 'soldadora', 'esmeril', 'rotomartillo', 'taladro', 'pulidora', 'cortadora', 'mezcladora', 'allanadora', 'niveladora', 'motoniveladora', 'retroexcavadora', 'tractor', 'camión', 'volquete', 'pipas']
+                };
 
-                for (const cat of categoriesToSearch) {
-                    // PRIORIDAD 1: Buscar precios oficiales del Tabulador CDMX (AUMENTAR a 50 para más opciones)
-                    // También buscar precios relevantes según el prompt del usuario
-                    let officialRefPrices = await MarketPriceService.getPricesByCategory(cat, location, 50);
-
-                    // Si el prompt menciona conceptos específicos, buscar precios relevantes
-                    const promptTerms = prompt.toLowerCase().split(/\s+/).filter(t => t.length > 4);
-                    if (promptTerms.length > 0) {
-                        // Buscar precios específicos basados en términos del prompt
-                        const relevantPrices = await Promise.all(
-                            promptTerms.slice(0, 3).map(term =>
-                                MarketPriceService.findReferencePrice(term, cat, location, 5)
-                            )
-                        );
-                        const flatRelevant = relevantPrices.flat();
-                        // Combinar con los precios generales, priorizando los relevantes
-                        const relevantOfficial = flatRelevant.filter(p => p.source === 'cdmx_tabulador');
-                        officialRefPrices = [...relevantOfficial, ...officialRefPrices].slice(0, 50);
+                const categoryScores = {};
+                for (const cat of ALL_CATEGORIES) {
+                    const keywords = categoryKeywords[cat] || [];
+                    let score = 0;
+                    for (const kw of keywords) {
+                        if (promptLower.includes(kw)) score += 1;
                     }
-
-                    // Separar precios oficiales de otros
-                    const official = officialRefPrices.filter(p => p.source === 'cdmx_tabulador');
-                    const others = officialRefPrices.filter(p => p.source !== 'cdmx_tabulador');
-
-                    if (official.length > 0) {
-                        officialPricesByCategory[cat] = official.slice(0, 30).map(p => ({
-                            description: p.description,
-                            unit: p.unit,
-                            basePrice: parseFloat(p.base_price),
-                            priceRange: p.price_range,
-                            source: 'Tabulador Oficial CDMX',
-                            official: true
-                        }));
+                    // Penalizar categorías muy genéricas si no hay match fuerte
+                    if (score === 0 && (cat === 'Equipos' || cat === 'Instalaciones')) {
+                        score = -1; // Solo cargar si hay evidencia clara
                     }
+                    categoryScores[cat] = score;
+                }
 
-                    // PRIORIDAD 2: Otras fuentes (solo si no hay suficientes oficiales)
-                    if (official.length < 15) {
-                        const additionalPrices = others.slice(0, Math.max(0, 15 - official.length));
-                        if (additionalPrices.length > 0) {
-                            if (!referencePricesByCategory[cat]) {
-                                referencePricesByCategory[cat] = [];
-                            }
-                            referencePricesByCategory[cat].push(...additionalPrices.map(p => ({
-                                description: p.description,
-                                unit: p.unit,
-                                basePrice: parseFloat(p.base_price),
-                                priceRange: p.price_range,
-                                source: p.source || 'Mercado',
-                                official: false
-                            })));
-                        }
+                // Seleccionar top 3 categorías con score > 0, mínimo 2 (Materiales y Mano de Obra siempre)
+                const scoredCategories = ALL_CATEGORIES
+                    .map(cat => ({ cat, score: categoryScores[cat] }))
+                    .sort((a, b) => b.score - a.score);
+
+                const relevantCategories = new Set();
+                relevantCategories.add('Materiales'); // Siempre incluir
+                relevantCategories.add('Mano de Obra'); // Siempre incluir
+
+                for (const { cat, score } of scoredCategories) {
+                    if (score > 0 && relevantCategories.size < 3) {
+                        relevantCategories.add(cat);
                     }
                 }
 
-                // Combinar: oficiales primero, luego otros
-                for (const cat of categories) {
-                    const combined = [
-                        ...(officialPricesByCategory[cat] || []),
-                        ...(referencePricesByCategory[cat] || [])
-                    ];
-                    if (combined.length > 0) {
-                        referencePricesByCategory[cat] = combined;
+                // Si no hay suficientes, agregar Obra Civil
+                if (relevantCategories.size < 3) {
+                    relevantCategories.add('Obra Civil');
+                }
+
+                const categoriesToSearch = [...relevantCategories];
+                const referencePricesByCategory = {};
+
+                // Cargar precios SOLO para categorías relevantes, máximo 15 por categoría
+                const MAX_PRICE_ITEMS_PER_CATEGORY = 15;
+                for (const cat of categoriesToSearch) {
+                    try {
+                        const prices = await MarketPriceService.getPricesByCategory(cat, location, MAX_PRICE_ITEMS_PER_CATEGORY);
+                        if (prices && prices.length > 0) {
+                            // Solo incluir campos esenciales: descripción, unidad, precio
+                            referencePricesByCategory[cat] = prices.slice(0, MAX_PRICE_ITEMS_PER_CATEGORY).map(p => ({
+                                d: (p.description || '').substring(0, 100), // Truncar a 100 chars
+                                u: p.unit || 'pza',
+                                p: parseFloat(p.base_price) || 0,
+                                o: p.source === 'cdmx_tabulador' // Solo marcar si es oficial
+                            }));
+                        }
+                    } catch (err) {
+                        console.warn(`No se pudieron cargar precios para categoría ${cat}:`, err.message);
                     }
                 }
 
                 if (Object.keys(referencePricesByCategory).length > 0) {
                     basePrices = referencePricesByCategory;
                 }
-
-                officialPrices = officialPricesByCategory;
             }
 
-            // Construir información de precios con énfasis en el Tabulador Oficial
+            // Construir información de precios COMPACTA
             let basePricesInfo = '';
             if (basePrices) {
-                const officialCount = Object.values(basePrices).flat().filter(p => p.official).length;
-                const totalCount = Object.values(basePrices).flat().length;
+                const totalItems = Object.values(basePrices).flat().length;
+                const officialItems = Object.values(basePrices).flat().filter(p => p.o).length;
+                const priceJson = JSON.stringify(basePrices);
 
-                basePricesInfo = `\n\n🎯 PRECIOS DE REFERENCIA (${location}):\n`;
+                // Si el JSON de precios es muy grande, truncarlo agresivamente
+                const MAX_PRICE_JSON_LENGTH = 4000; // ~1000 tokens
+                const truncatedPriceJson = priceJson.length > MAX_PRICE_JSON_LENGTH
+                    ? priceJson.substring(0, MAX_PRICE_JSON_LENGTH - 3) + '...'
+                    : priceJson;
 
-                if (officialCount > 0) {
-                    basePricesInfo += `\n⭐ TABULADOR OFICIAL CDMX (${officialCount} precios oficiales del Gobierno de la CDMX):\n`;
-                    basePricesInfo += `Estos son precios OFICIALES y ACTUALIZADOS del Tabulador General de Precios Unitarios del Gobierno de la Ciudad de México.\n`;
-                    basePricesInfo += `ÚSALOS COMO FUENTE PRINCIPAL cuando no haya coincidencia en el catálogo del usuario.\n\n`;
-                }
-
-                basePricesInfo += JSON.stringify(basePrices, null, 2);
-                basePricesInfo += `\n\n📋 INSTRUCCIONES DE USO (ESTRICTO - MÁXIMA CONSISTENCIA):\n`;
-                basePricesInfo += `1. ⚠️ CRÍTICO: Si encuentras un concepto similar en el Tabulador Oficial CDMX o Base Maestra, usa ESE precio EXACTO sin modificar (no inventes, no ajustes)\n`;
-                basePricesInfo += `2. Si el concepto está exactamente en la Base Maestra, COPIA el precio tal cual está (mayor consistencia)\n`;
-                basePricesInfo += `3. Los precios oficiales (official: true) son OBLIGATORIOS cuando hay coincidencia - NO los modifiques\n`;
-                basePricesInfo += `4. Solo si NO hay coincidencia en la Base Maestra, entonces estima basándote en estándares\n`;
-                basePricesInfo += `5. En "calculation_basis" SIEMPRE indica la fuente exacta del precio usado\n`;
+                basePricesInfo = `\n\n📋 PRECIOS REF (${location}, ${totalItems} ítems`;
+                if (officialItems > 0) basePricesInfo += `, ${officialItems} oficiales CDMX`;
+                basePricesInfo += `):\n${truncatedPriceJson}\n`;
+                basePricesInfo += `USAR PRECIO EXACTO SI COINCIDE. d=descripción u=unidad p=precio o=oficialCDMX.\n`;
             }
 
             const currentYear = new Date().getFullYear();
@@ -299,12 +287,20 @@ INSTRUCCIONES CLAVE:
             if (!text) {
                 console.error('AI Response missing text. Full result:', JSON.stringify(result, null, 2));
 
-                if (candidate?.finishReason === 'SAFETY') {
+                if (candidate?.finishReason === 'SAFETY' || candidate?.finishReason === 'content_filter') {
                     throw new Error('La IA bloqueó la respuesta por motivos de seguridad. Intenta reformular tu solicitud.');
                 }
 
                 if (candidate?.finishReason === 'RECITATION') {
                     throw new Error('La IA bloqueó la respuesta por coincidencia con contenido protegido. Intenta ser más específico.');
+                }
+
+                if (candidate?.finishReason === 'length') {
+                    throw new Error('La IA truncó la respuesta por límite de tokens de salida. Intenta reducir el alcance de la solicitud.');
+                }
+
+                if (!candidate?.finishReason) {
+                    throw new Error('La IA no pudo procesar la solicitud. El prompt podría ser demasiado extenso. Intenta con una descripción más breve o divide el proyecto en partes más pequeñas.');
                 }
 
                 throw new Error(`No se recibió texto de la IA. Razón: ${candidate?.finishReason || 'Desconocida'}`);
