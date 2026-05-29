@@ -5,13 +5,15 @@ export class SystemSettingsService {
     constructor() {
         this.cache = null;
         this.lastFetch = 0;
-        this.CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+        // 10 segundos en backend (Node), 5 minutos en frontend (Vite)
+        this.CACHE_DURATION = (typeof process !== 'undefined' && process.env) ? 10 * 1000 : 5 * 60 * 1000;
         this.LOCAL_CACHE_KEY = 'presugenius_system_settings_cache';
 
         // Valores por defecto
         this.defaults = {
             whatsapp_number: '522811975587',
             support_message: 'Hola, necesito ayuda con PresuGenius',
+            preferred_ai_provider: 'deepseek', // 'deepseek', 'groq' o 'gemini'
             ignore_env_keys: false, // Si es true, solo usa las keys de la BD
             plan_pro_price: 299,
             plan_pro_description: 'Para profesionales que necesitan más',

@@ -335,16 +335,25 @@ function getProviderLabel(provider) {
 
 function getConfiguredPrimaryProviders(tier = USER_TIER.FREE) {
     const providers = [];
+    const preferred = apiKeyManager.preferredProvider || 'deepseek';
 
-    if (apiKeyManager.hasAvailableKeys(PROVIDERS.DEEPSEEK, tier)) {
+    // 1. Añadir el preferido primero (si tiene keys)
+    if (preferred === PROVIDERS.DEEPSEEK && apiKeyManager.hasAvailableKeys(PROVIDERS.DEEPSEEK, tier)) {
+        providers.push(PROVIDERS.DEEPSEEK);
+    } else if (preferred === PROVIDERS.GROQ && apiKeyManager.hasAvailableKeys(PROVIDERS.GROQ, tier)) {
+        providers.push(PROVIDERS.GROQ);
+    } else if (preferred === PROVIDERS.GEMINI && (apiKeyManager.hasAvailableKeys(PROVIDERS.GEMINI, tier) || AI_API_KEY_FALLBACK)) {
+        providers.push(PROVIDERS.GEMINI);
+    }
+
+    // 2. Añadir los demás como fallbacks en orden de prioridad estándar (DeepSeek -> Groq -> Gemini)
+    if (!providers.includes(PROVIDERS.DEEPSEEK) && apiKeyManager.hasAvailableKeys(PROVIDERS.DEEPSEEK, tier)) {
         providers.push(PROVIDERS.DEEPSEEK);
     }
-
-    if (apiKeyManager.hasAvailableKeys(PROVIDERS.GROQ, tier)) {
+    if (!providers.includes(PROVIDERS.GROQ) && apiKeyManager.hasAvailableKeys(PROVIDERS.GROQ, tier)) {
         providers.push(PROVIDERS.GROQ);
     }
-
-    if (apiKeyManager.hasAvailableKeys(PROVIDERS.GEMINI, tier) || AI_API_KEY_FALLBACK) {
+    if (!providers.includes(PROVIDERS.GEMINI) && (apiKeyManager.hasAvailableKeys(PROVIDERS.GEMINI, tier) || AI_API_KEY_FALLBACK)) {
         providers.push(PROVIDERS.GEMINI);
     }
 

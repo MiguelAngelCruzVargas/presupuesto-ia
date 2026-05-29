@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, RefreshCw, Smartphone, CreditCard, Key, Shield, CheckCircle, AlertCircle, Plus, Trash2, Eye, Users, Search, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Save, RefreshCw, Smartphone, CreditCard, Key, Shield, CheckCircle, AlertCircle, Plus, Trash2, Eye, Users, Search, ToggleLeft, ToggleRight, Bot } from 'lucide-react';
 import { renderMarkdown } from '../utils/markdownRenderer';
 import { systemSettingsService } from '../services/SystemSettingsService';
 import { useAuth } from '../context/AuthContext';
@@ -389,6 +389,33 @@ const AdminDashboard = () => {
                                 />
                                 <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
                             </label>
+                        </div>
+
+                        {/* Selector de Proveedor Preferido */}
+                        <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                            <div>
+                                <h4 className="font-bold text-indigo-800 dark:text-indigo-200 flex items-center gap-2">
+                                    <Bot size={18} />
+                                    Proveedor de IA Preferido
+                                </h4>
+                                <p className="text-sm text-indigo-700 dark:text-indigo-300 mt-1">
+                                    Selecciona el proveedor principal de Inteligencia Artificial que se usará para generar los presupuestos y respuestas.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <select
+                                    value={settings.preferred_ai_provider || 'deepseek'}
+                                    onChange={(e) => {
+                                        setSettings({ ...settings, preferred_ai_provider: e.target.value });
+                                        handleSave('preferred_ai_provider', e.target.value);
+                                    }}
+                                    className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                                >
+                                    <option value="deepseek">DeepSeek (v4-flash)</option>
+                                    <option value="groq">Groq (Llama 3.3)</option>
+                                    <option value="gemini">Gemini (Flash)</option>
+                                </select>
+                            </div>
                         </div>
 
                         {/* DEEPSEEK SECTION */}

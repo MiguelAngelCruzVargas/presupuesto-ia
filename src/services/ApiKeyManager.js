@@ -77,6 +77,7 @@ class ApiKeyManager {
         };
         this.keyStats = new Map();
         this.blockedKeys = new Set();
+        this.preferredProvider = 'deepseek';
         // console.log('DEBUG: ApiKeyManager constructor - Estado inicial de keys:', JSON.stringify({
         //     gemini: summarizeProviderKeys(this.keys.gemini),
         //     groq: summarizeProviderKeys(this.keys.groq),
@@ -92,6 +93,7 @@ class ApiKeyManager {
     async loadFromSettings() {
         try {
             const settings = await systemSettingsService.getAllSettings();
+            this.preferredProvider = settings.preferred_ai_provider || 'deepseek';
             const ignoreEnvKeys = settings.ignore_env_keys;
             // console.log('DEBUG: loadFromSettings - ignoreEnvKeys:', ignoreEnvKeys);
             // console.log('DEBUG: loadFromSettings - settings.api_keys:', JSON.stringify({
