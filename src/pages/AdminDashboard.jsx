@@ -366,8 +366,6 @@ const AdminDashboard = () => {
                 {/* API KEYS SETTINGS */}
                 {activeTab === 'api' && (
                     <div className="space-y-8">
-                        <SectionTitle title="Gemini API Keys" description="Gestiona las llaves para el servicio de IA" />
-
                         {/* Toggle para ignorar .env */}
                         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-4 flex items-center justify-between mb-6">
                             <div>
@@ -376,7 +374,7 @@ const AdminDashboard = () => {
                                     Modo Estricto (Ignorar .env)
                                 </h4>
                                 <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                                    Si activas esto, el sistema <strong>solamente</strong> usará las keys listadas abajo y ignorará las del archivo .env.
+                                    Si activas esto, el sistema <strong>solamente</strong> usará las keys listadas abajo e ignorará las del archivo .env.
                                 </p>
                             </div>
                             <label className="relative inline-flex items-center cursor-pointer">
@@ -393,31 +391,118 @@ const AdminDashboard = () => {
                             </label>
                         </div>
 
-                        <DynamicList
-                            title="Keys Gratuitas (Pool Free)"
-                            items={settings.api_keys?.gemini?.free || []}
-                            onUpdate={(newKeys) => {
-                                const newApiKeys = { ...settings.api_keys, gemini: { ...settings.api_keys.gemini, free: newKeys } };
-                                setSettings({ ...settings, api_keys: newApiKeys });
-                                handleSave('api_keys', newApiKeys);
-                            }}
-                            placeholder="Pegar API Key gratuita..."
-                            isCode
-                        />
-
-                        <div className="pt-6 border-t border-slate-100 dark:border-slate-700">
+                        {/* DEEPSEEK SECTION */}
+                        <div className="p-6 bg-slate-50/50 dark:bg-slate-900/20 rounded-2xl border border-slate-200 dark:border-slate-700/50 space-y-6">
+                            <SectionTitle title="DeepSeek API Keys" description="Llaves para el modelo deepseek-v4-flash (Prioridad Principal)" />
+                            
                             <DynamicList
-                                title="Keys Pro (Pool Pago)"
-                                items={settings.api_keys?.gemini?.pro || []}
+                                title="Keys Gratuitas (Pool Free)"
+                                items={settings.api_keys?.deepseek?.free || []}
                                 onUpdate={(newKeys) => {
-                                    const newApiKeys = { ...settings.api_keys, gemini: { ...settings.api_keys.gemini, pro: newKeys } };
+                                    const newApiKeys = {
+                                        ...settings.api_keys,
+                                        deepseek: { ...(settings.api_keys?.deepseek || {}), free: newKeys }
+                                    };
                                     setSettings({ ...settings, api_keys: newApiKeys });
                                     handleSave('api_keys', newApiKeys);
                                 }}
-                                placeholder="Pegar API Key Pro..."
+                                placeholder="Pegar API Key gratuita de DeepSeek..."
                                 isCode
-                                titleColor="text-amber-600"
                             />
+
+                            <div className="pt-6 border-t border-slate-100 dark:border-slate-700">
+                                <DynamicList
+                                    title="Keys Pro (Pool Pago)"
+                                    items={settings.api_keys?.deepseek?.pro || []}
+                                    onUpdate={(newKeys) => {
+                                        const newApiKeys = {
+                                            ...settings.api_keys,
+                                            deepseek: { ...(settings.api_keys?.deepseek || {}), pro: newKeys }
+                                        };
+                                        setSettings({ ...settings, api_keys: newApiKeys });
+                                        handleSave('api_keys', newApiKeys);
+                                    }}
+                                    placeholder="Pegar API Key Pro de DeepSeek..."
+                                    isCode
+                                    titleColor="text-amber-600"
+                                />
+                            </div>
+                        </div>
+
+                        {/* GROQ (LLAMA) SECTION */}
+                        <div className="p-6 bg-slate-50/50 dark:bg-slate-900/20 rounded-2xl border border-slate-200 dark:border-slate-700/50 space-y-6">
+                            <SectionTitle title="Groq (Llama) API Keys" description="Llaves para el modelo llama-3.3-70b-versatile" />
+                            
+                            <DynamicList
+                                title="Keys Gratuitas (Pool Free)"
+                                items={settings.api_keys?.groq?.free || []}
+                                onUpdate={(newKeys) => {
+                                    const newApiKeys = {
+                                        ...settings.api_keys,
+                                        groq: { ...(settings.api_keys?.groq || {}), free: newKeys }
+                                    };
+                                    setSettings({ ...settings, api_keys: newApiKeys });
+                                    handleSave('api_keys', newApiKeys);
+                                }}
+                                placeholder="Pegar API Key gratuita de Groq..."
+                                isCode
+                            />
+
+                            <div className="pt-6 border-t border-slate-100 dark:border-slate-700">
+                                <DynamicList
+                                    title="Keys Pro (Pool Pago)"
+                                    items={settings.api_keys?.groq?.pro || []}
+                                    onUpdate={(newKeys) => {
+                                        const newApiKeys = {
+                                            ...settings.api_keys,
+                                            groq: { ...(settings.api_keys?.groq || {}), pro: newKeys }
+                                        };
+                                        setSettings({ ...settings, api_keys: newApiKeys });
+                                        handleSave('api_keys', newApiKeys);
+                                    }}
+                                    placeholder="Pegar API Key Pro de Groq..."
+                                    isCode
+                                    titleColor="text-amber-600"
+                                />
+                            </div>
+                        </div>
+
+                        {/* GEMINI SECTION */}
+                        <div className="p-6 bg-slate-50/50 dark:bg-slate-900/20 rounded-2xl border border-slate-200 dark:border-slate-700/50 space-y-6">
+                            <SectionTitle title="Gemini API Keys" description="Llaves para el modelo gemini-flash-latest" />
+                            
+                            <DynamicList
+                                title="Keys Gratuitas (Pool Free)"
+                                items={settings.api_keys?.gemini?.free || []}
+                                onUpdate={(newKeys) => {
+                                    const newApiKeys = {
+                                        ...settings.api_keys,
+                                        gemini: { ...(settings.api_keys?.gemini || {}), free: newKeys }
+                                    };
+                                    setSettings({ ...settings, api_keys: newApiKeys });
+                                    handleSave('api_keys', newApiKeys);
+                                }}
+                                placeholder="Pegar API Key gratuita de Gemini..."
+                                isCode
+                            />
+
+                            <div className="pt-6 border-t border-slate-100 dark:border-slate-700">
+                                <DynamicList
+                                    title="Keys Pro (Pool Pago)"
+                                    items={settings.api_keys?.gemini?.pro || []}
+                                    onUpdate={(newKeys) => {
+                                        const newApiKeys = {
+                                            ...settings.api_keys,
+                                            gemini: { ...(settings.api_keys?.gemini || {}), pro: newKeys }
+                                        };
+                                        setSettings({ ...settings, api_keys: newApiKeys });
+                                        handleSave('api_keys', newApiKeys);
+                                    }}
+                                    placeholder="Pegar API Key Pro de Gemini..."
+                                    isCode
+                                    titleColor="text-amber-600"
+                                />
+                            </div>
                         </div>
                     </div>
                 )}
