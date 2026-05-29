@@ -13,6 +13,12 @@ import { generateId } from '../utils/helpers';
 import { APP_CONFIG } from '../config/appConfig';
 
 export class AIBudgetService {
+    static DESCRIPTION_SUGGESTION_FALLBACKS = [
+        'Suministro y colocación de concepto de obra, incluye materiales, mano de obra, herramienta y equipo.',
+        'Ejecución de concepto de obra conforme a proyecto, incluye materiales, mano de obra, herramienta y equipo.',
+        'Construcción de concepto de obra con materiales y procedimientos de uso común, incluye mano de obra, herramienta y equipo.'
+    ];
+
     static resolveLocation(projectInfo = {}, overrideLocation = null) {
         return overrideLocation || projectInfo.location || APP_CONFIG.defaultCountry;
     }
@@ -2052,27 +2058,130 @@ RECUERDA: IGNORA COMPLETAMENTE LA CANTIDAD DEL PROYECTO (${item.quantity || 1}).
      */
     static async generateDescription(itemData, context = []) {
         const { code, unit, category, partialDescription } = itemData;
+        const normalizedUnit = unit || 'No especificada';
+        const normalizedCategory = category || 'General';
+        const trimmedDescription = partialDescription?.trim() || '';
 
-        // Build prompt
         const contextInfo = context.length > 0
-            ? `\n\nContexto del presupuesto:\n${context.slice(0, 5).map(item => `- ${item.description} (${item.unit})`).join('\n')}`
-            : '';
+            ? context
+                .slice(0, 5)
+                .map(item => `- ${item.description} (${item.unit || 'sin unidad'})`)
+                .join('\n')
+            : 'Sin contexto adicional.';
 
-        const prompt = `Eres un experto en presupuestos de construcción en México. \nGenera 3 descripciones profesionales y técnicas para una partida de presupuesto con las siguientes características:\n\n- Código/Clave: ${code || 'No especificado'}\n- Unidad: ${unit || 'No especificada'}\n- Categoría: ${category || 'General'}\n${partialDescription ? `- Descripción parcial: ${partialDescription}` : ''}\n${contextInfo}\n\nRequisitos:\n1. Descripciones técnicas y profesionales\n2. Incluir especificaciones relevantes\n3. Usar terminología de construcción mexicana\n4. Máximo 100 caracteres cada una\n5. Diferentes niveles de detalle (básica, media, detallada)\n\nResponde SOLO con las 3 descripciones separadas por saltos de línea, sin numeración ni texto adicional.`;
+        const systemInstruction = `Eres analista senior de costos y presupuestos de construcción en México.
+Generas textos de conceptos de obra con estilo técnico tipo NEODATA / Construbase / ADES.
+
+Reglas obligatorias:
+1. Devuelve EXACTAMENTE un arreglo JSON de 3 strings.
+2. Cada descripción debe iniciar con un verbo técnico en infinitivo: "Suministrar", "Construir", "Colocar", "Ejecutar", "Aplicar", "Habilitar", "Fabricar", etc.
+3. Cada descripción debe sonar a concepto de presupuesto, no a explicación comercial ni a consejo.
+4. No uses numeración, encabezados, markdown, comillas externas, notas, observaciones ni texto fuera del JSON.
+5. No inventes marcas, normas, ubicaciones, recomendaciones, notas geotécnicas ni frases como "según convenga".
+6. Si hay datos técnicos en la descripción parcial, consérvalos y ordénalos mejor.
+7. Evita textos genéricos vacíos como "partida de construcción" o "materiales incluidos" sin especificar el concepto.
+8. Longitud objetivo por opción: entre 140 y 240 caracteres, manteniendo redacción concisa.
+9. Las 3 opciones deben variar en enfoque:
+   - Opción 1: clara y compacta.
+   - Opción 2: técnica equilibrada.
+   - Opción 3: más completa en alcance.
+10. Cierra de forma breve con alcance típico: "incluye: materiales, mano de obra, herramienta y equipo." solo cuando aporte valor.`;
+
+        const prompt = `Genera 3 descripciones alternativas para un concepto de presupuesto.
+
+DATOS DEL CONCEPTO:
+- Código/Clave: ${code || 'No especificado'}
+- Unidad: ${normalizedUnit}
+- Categoría: ${normalizedCategory}
+- Descripción base del usuario: ${trimmedDescription || 'No especificada'}
+
+CONTEXTO CERCANO DEL PRESUPUESTO:
+${contextInfo}
+
+CRITERIO DE SALIDA:
+- Prioriza terminología técnica mexicana.
+- Si faltan datos, no inventes especificaciones críticas.
+- Si el texto base ya es bueno, mejóralo en redacción, orden y tono profesional.
+- Entrega SOLO el JSON array de 3 strings.`;
 
         try {
-            const result = await BackendAIService.sendPrompt(prompt);
+            const result = await BackendAIService.sendPrompt(prompt, systemInstruction, { cache: false });
             const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            const descriptions = text.split('\n').filter(l => l.trim().length > 0).slice(0, 3);
-            return descriptions.length > 0 ? descriptions : [
-                'Suministro y colocación de material',
-                'Mano de obra y materiales incluidos',
-                'Partida de construcción'
-            ];
+            const descriptions = this.parseDescriptionSuggestions(text);
+            return descriptions.length > 0
+                ? descriptions
+                : this.DESCRIPTION_SUGGESTION_FALLBACKS;
         } catch (error) {
             console.error('Error generating description:', error);
-            throw error;
+            return this.DESCRIPTION_SUGGESTION_FALLBACKS;
         }
+    }
+
+    static parseDescriptionSuggestions(text) {
+        const cleanText = this.cleanJson(text);
+
+        try {
+            const parsed = JSON.parse(cleanText);
+            if (Array.isArray(parsed)) {
+                return this.normalizeDescriptionSuggestions(parsed);
+            }
+        } catch {
+            // Fallback a parsing por líneas si el modelo no devolvió JSON válido.
+        }
+
+        const lineBased = cleanText
+            .split('\n')
+            .map(line => line.replace(/^[-*\d.)\s]+/, '').trim())
+            .filter(Boolean);
+
+        return this.normalizeDescriptionSuggestions(lineBased);
+    }
+
+    static normalizeDescriptionSuggestions(suggestions = []) {
+        const uniqueDescriptions = [];
+        const seen = new Set();
+
+        suggestions.forEach((suggestion) => {
+            const normalized = String(suggestion || '')
+                .replace(/^["'`]+|["'`]+$/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            if (!normalized || normalized.length < 40) return;
+
+            const lowerValue = normalized.toLowerCase();
+            if (
+                lowerValue === 'partida de construcción' ||
+                lowerValue === 'mano de obra y materiales incluidos' ||
+                lowerValue === 'suministro y colocación de material'
+            ) {
+                return;
+            }
+
+            if (!seen.has(lowerValue)) {
+                seen.add(lowerValue);
+                uniqueDescriptions.push(normalized);
+            }
+        });
+
+        return uniqueDescriptions.slice(0, 3);
+    }
+
+    static parseSuggestedPriceValue(text) {
+        const cleanText = this.cleanJson(text);
+
+        try {
+            const parsed = JSON.parse(cleanText);
+            const directValue = parseFloat(parsed?.suggested ?? parsed?.price ?? parsed?.unitPrice);
+            if (!Number.isNaN(directValue) && directValue > 0) {
+                return directValue;
+            }
+        } catch {
+            // Fallback a extracción numérica simple.
+        }
+
+        const numericValue = parseFloat(cleanText.replace(/[^0-9.]/g, ''));
+        return !Number.isNaN(numericValue) && numericValue > 0 ? numericValue : null;
     }
 
     /**
@@ -2105,36 +2214,35 @@ RECUERDA: IGNORA COMPLETAMENTE LA CANTIDAD DEL PROYECTO (${item.quantity || 1}).
             .filter(p => p > 0);
 
         const allPrices = [...catalogPrices, ...officialPrices, ...otherMarketPrices].filter(p => p > 0);
-
-        if (allPrices.length === 0) {
-            return {
-                suggested: null,
-                min: null,
-                max: null,
-                confidence: 'low',
-                message: 'No hay datos suficientes para sugerir un precio',
-                source: 'none'
-            };
-        }
-
-        // Calcular estadísticas, dando más peso a precios oficiales
-        const avg = allPrices.reduce((a, b) => a + b, 0) / allPrices.length;
-        const min = Math.min(...allPrices);
-        const max = Math.max(...allPrices);
-
-        // Si hay precios oficiales, priorizar el promedio de esos
+        const hasReferenceData = allPrices.length > 0;
+        const avg = hasReferenceData
+            ? allPrices.reduce((a, b) => a + b, 0) / allPrices.length
+            : null;
+        const min = hasReferenceData ? Math.min(...allPrices) : null;
+        const max = hasReferenceData ? Math.max(...allPrices) : null;
         const suggestedPrice = officialPrices.length > 0
             ? officialPrices.reduce((a, b) => a + b, 0) / officialPrices.length
             : catalogPrices.length > 0
                 ? catalogPrices.reduce((a, b) => a + b, 0) / catalogPrices.length
-                : avg;
+                : hasReferenceData
+                    ? avg
+                    : null;
 
         const priceSources = [];
         if (catalogPrices.length > 0) priceSources.push(`${catalogPrices.length} del catálogo del usuario`);
         if (officialPrices.length > 0) priceSources.push(`${officialPrices.length} del Tabulador Oficial CDMX`);
         if (otherMarketPrices.length > 0) priceSources.push(`${otherMarketPrices.length} de otras fuentes`);
 
-        let promptText = `Eres un experto en costos de construcción en México.\n\n`;
+        const systemInstruction = `Eres un analista senior de costos de construcción en México.
+Debes estimar precios unitarios de conceptos de obra por unidad, no por volumen total del proyecto.
+
+Reglas:
+1. Si hay referencias confiables, úsalas como ancla principal.
+2. Si no hay referencias, estima con criterio técnico realista usando conocimiento de materiales, mano de obra, equipo y rendimientos típicos.
+3. Nunca respondas con rangos absurdamente amplios ni con texto comercial.
+4. Responde SOLO con JSON: {"suggested": number}.`;
+
+        let promptText = `Estima un precio unitario para el siguiente concepto de obra en México.\n\n`;
 
         if (priceSources.length > 0) {
             promptText += `Fuentes de precios disponibles:\n${priceSources.join('\n')}\n\n`;
@@ -2149,34 +2257,79 @@ RECUERDA: IGNORA COMPLETAMENTE LA CANTIDAD DEL PROYECTO (${item.quantity || 1}).
         }
 
         promptText += `Sugiere un precio razonable para:\n- Descripción: ${description}\n- Unidad: ${unit}\n- Categoría: ${category || 'General'}\n- Ubicación: ${location}\n\n`;
-        promptText += `Estadísticas disponibles:\n- Precio promedio general: $${avg.toFixed(2)}\n- Rango: $${min.toFixed(2)} - $${max.toFixed(2)}\n`;
+        if (hasReferenceData) {
+            promptText += `Estadísticas disponibles:\n- Precio promedio general: $${avg.toFixed(2)}\n- Rango: $${min.toFixed(2)} - $${max.toFixed(2)}\n`;
+        }
 
-        if (officialPrices.length > 0) {
+        if (officialPrices.length > 0 && hasReferenceData) {
             const officialAvg = officialPrices.reduce((a, b) => a + b, 0) / officialPrices.length;
             promptText += `- Precio promedio del Tabulador Oficial CDMX: $${officialAvg.toFixed(2)}\n`;
             promptText += `\nIMPORTANTE: Si hay precios del Tabulador Oficial CDMX, prioriza esos (son oficiales y actualizados).\n`;
         }
 
-        promptText += `\nResponde SOLO con un número (el precio sugerido en pesos mexicanos), sin símbolos ni texto adicional.`;
+        if (!hasReferenceData) {
+            promptText += `\nNo hay referencias externas confiables para este concepto. Debes estimar con tu conocimiento técnico del mercado mexicano actual y devolver un precio unitario realista.\n`;
+        }
+
+        promptText += `\nDevuelve SOLO el JSON {"suggested": number}.`;
 
         try {
-            const result = await BackendAIService.sendPrompt(promptText);
+            const result = await BackendAIService.sendPrompt(promptText, systemInstruction, { cache: false });
             const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            const aiSuggestedPrice = parseFloat(text.replace(/[^0-9.]/g, ''));
+            const aiSuggestedPrice = this.parseSuggestedPriceValue(text);
 
-            const finalPrice = !isNaN(aiSuggestedPrice) && aiSuggestedPrice > 0 ? aiSuggestedPrice : suggestedPrice;
+            if (!hasReferenceData && (!aiSuggestedPrice || aiSuggestedPrice <= 0)) {
+                return {
+                    suggested: null,
+                    min: null,
+                    max: null,
+                    confidence: 'low',
+                    message: 'No se pudo estimar un precio con IA para este concepto.',
+                    source: 'none'
+                };
+            }
+
+            const finalPrice = aiSuggestedPrice || suggestedPrice;
+            const fallbackRangeFactor = hasReferenceData ? 0.1 : 0.2;
+            const derivedMin = min ?? (finalPrice * (1 - fallbackRangeFactor));
+            const derivedMax = max ?? (finalPrice * (1 + fallbackRangeFactor));
+            const source = officialPrices.length > 0
+                ? 'cdmx_tabulador'
+                : catalogPrices.length > 0
+                    ? 'catalog'
+                    : otherMarketPrices.length > 0
+                        ? 'market'
+                        : 'ai_estimation';
+            const confidence = officialPrices.length > 0
+                ? 'high'
+                : catalogPrices.length >= 5
+                    ? 'high'
+                    : catalogPrices.length >= 2 || otherMarketPrices.length > 0
+                        ? 'medium'
+                        : 'low';
 
             return {
                 suggested: finalPrice,
-                min: min * 0.9,
-                max: max * 1.1,
-                confidence: officialPrices.length > 0 ? 'high' : catalogPrices.length >= 5 ? 'high' : catalogPrices.length >= 2 ? 'medium' : 'low',
+                min: derivedMin * 0.9,
+                max: derivedMax * 1.1,
+                confidence,
                 similarCount: similarItems.length + marketPrices.length,
-                source: officialPrices.length > 0 ? 'cdmx_tabulador' : catalogPrices.length > 0 ? 'catalog' : 'market',
+                source,
                 officialPricesCount: officialPrices.length
             };
         } catch (error) {
             console.error('Error suggesting price:', error);
+            if (!hasReferenceData) {
+                return {
+                    suggested: null,
+                    min: null,
+                    max: null,
+                    confidence: 'low',
+                    message: 'No hay referencias y la estimación con IA no estuvo disponible.',
+                    source: 'none'
+                };
+            }
+
             return {
                 suggested: suggestedPrice,
                 min: min * 0.9,

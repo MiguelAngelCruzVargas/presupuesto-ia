@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { TrendingUp, Sparkles, AlertCircle } from 'lucide-react';
 import { AIBudgetService } from '../../services/AIBudgetService';
 
@@ -38,6 +38,16 @@ const AIPriceHelper = ({ itemData, catalogData, onSuggestionClick }) => {
             case 'medium': return 'Confianza media';
             case 'low': return 'Baja confianza';
             default: return 'Sin datos';
+        }
+    };
+
+    const getSourceLabel = (source) => {
+        switch (source) {
+            case 'cdmx_tabulador': return 'Fuente: Tabulador Oficial CDMX';
+            case 'catalog': return 'Fuente: Catálogo del usuario + IA';
+            case 'market': return 'Fuente: Mercado + IA';
+            case 'ai_estimation': return 'Fuente: Estimación propia de IA';
+            default: return 'Fuente: Sin referencia externa';
         }
     };
 
@@ -123,6 +133,10 @@ const AIPriceHelper = ({ itemData, catalogData, onSuggestionClick }) => {
                                 Basado en {suggestion.similarCount} partida{suggestion.similarCount !== 1 ? 's' : ''} similar{suggestion.similarCount !== 1 ? 'es' : ''} del catálogo
                             </div>
                         )}
+
+                        <div className="text-xs text-slate-500">
+                            {getSourceLabel(suggestion.source)}
+                        </div>
                     </div>
                 </div>
             </div>

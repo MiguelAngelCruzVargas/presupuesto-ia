@@ -12,6 +12,40 @@ export class MarketPriceService {
         return APP_CONFIG.defaultCountry;
     }
 
+    static normalizeUnit(unit) {
+        return String(unit || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/\s+/g, '')
+            .replace(/\./g, '')
+            .replace('²', '2')
+            .replace('³', '3');
+    }
+
+    static areUnitsCompatible(unitA, unitB) {
+        const a = this.normalizeUnit(unitA);
+        const b = this.normalizeUnit(unitB);
+
+        if (!a || !b) return false;
+        if (a === b) return true;
+
+        const groups = [
+            ['m', 'ml', 'metro', 'metros'],
+            ['m2', 'metro2', 'metros2'],
+            ['m3', 'metro3', 'metros3'],
+            ['pza', 'pieza', 'pzas', 'und', 'unidad', 'unidades'],
+            ['lt', 'l', 'litro', 'litros'],
+            ['kg', 'kilo', 'kilos', 'kilogramo', 'kilogramos'],
+            ['ton', 'tons', 'tonelada', 'toneladas'],
+            ['jgo', 'juego', 'juegos'],
+            ['servicio', 'srv'],
+            ['global', 'glb'],
+        ];
+
+        return groups.some(group => group.includes(a) && group.includes(b));
+    }
+
     static normalizeText(text) {
         return String(text || '')
             .toLowerCase()
@@ -196,37 +230,76 @@ export class MarketPriceService {
         return score;
     }
 
-    static async findBestMatch(description, category, location = APP_CONFIG.defaultCountry) {
+    static rankCandidates(description, candidates = [], expectedUnit = null) {
+        return candidates
+            .map(item => {
+                const fuzzyScore = this.scoreDescriptionMatch(description, item.description);
+                const unitCompatible = expectedUnit
+                    ? this.areUnitsCompatible(expectedUnit, item.unit)
+                    : true;
+
+                let score = fuzzyScore;
+                if (unitCompatible) {
+                    score += 100;
+                } else if (expectedUnit && item.unit) {
+                    score -= 100;
+                }
+
+                return {
+                    ...item,
+                    fuzzyScore,
+                    unitCompatible,
+                    benchmarkScore: score
+                };
+            })
+            .filter(item => item.fuzzyScore > 0)
+            .sort((a, b) => b.benchmarkScore - a.benchmarkScore);
+    }
+
+    static async findBestMatch(description, category, location = APP_CONFIG.defaultCountry, expectedUnit = null) {
         const exactMatches = await this.findReferencePrice(description, category, location, 10);
         if (exactMatches.length > 0) {
-            return exactMatches[0];
-        }
+            const rankedExactMatches = this.rankCandidates(description, exactMatches, expectedUnit);
+            const exactCompatible = rankedExactMatches.find(item => item.unitCompatible);
 
-        const terms = this.buildSearchTerms(description);
-        for (const term of terms.slice(0, 2)) {
-            const { data } = await this.searchPrices(term, 1, 25);
-            const candidates = (data || [])
-                .filter(item => !category || item.category === category)
-                .map(item => ({
-                    ...item,
-                    fuzzyScore: this.scoreDescriptionMatch(description, item.description)
-                }))
-                .filter(item => item.fuzzyScore > 0)
-                .sort((a, b) => b.fuzzyScore - a.fuzzyScore);
+            if (exactCompatible) {
+                return exactCompatible;
+            }
 
-            if (candidates.length > 0) {
-                return candidates[0];
+            if (rankedExactMatches.length > 0 && !expectedUnit) {
+                return rankedExactMatches[0];
             }
         }
 
-        return null;
+        const terms = this.buildSearchTerms(description);
+        let bestIncompatibleCandidate = null;
+
+        for (const term of terms.slice(0, 2)) {
+            const { data } = await this.searchPrices(term, 1, 25);
+            const candidates = this.rankCandidates(
+                description,
+                (data || []).filter(item => !category || item.category === category),
+                expectedUnit
+            );
+
+            const compatibleCandidate = candidates.find(item => item.unitCompatible);
+            if (compatibleCandidate) {
+                return compatibleCandidate;
+            }
+
+            if (!bestIncompatibleCandidate && candidates.length > 0) {
+                bestIncompatibleCandidate = candidates[0];
+            }
+        }
+
+        return expectedUnit ? null : bestIncompatibleCandidate;
     }
 
     static async getBenchmarkForItem(item, location = APP_CONFIG.defaultCountry) {
         if (!item?.description) return null;
 
         const category = item.category || 'Materiales';
-        const bestMatch = await this.findBestMatch(item.description, category, location);
+        const bestMatch = await this.findBestMatch(item.description, category, location, item.unit);
         if (!bestMatch) return null;
 
         const marketPrice = parseFloat(bestMatch.base_price);

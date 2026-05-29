@@ -44,7 +44,7 @@ const AIDescriptionGenerator = ({ itemData, context, onSelect, onClose }) => {
                             <Sparkles size={24} />
                             <div>
                                 <h3 className="text-xl font-bold">Generador de Descripciones IA</h3>
-                                <p className="text-purple-100 text-sm">Powered by Gemini AI</p>
+                                <p className="text-purple-100 text-sm">Sugerencias técnicas para conceptos de presupuesto</p>
                             </div>
                         </div>
                         <button
