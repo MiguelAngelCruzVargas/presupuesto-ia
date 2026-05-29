@@ -19,6 +19,16 @@ export class AIBudgetService {
         'Construcción de concepto de obra con materiales y procedimientos de uso común, incluye mano de obra, herramienta y equipo.'
     ];
 
+    static BUDGET_COMPLEXITY_RULES = {
+        minItemsForComplexScope: 8,
+        maxZeroValueItemsBeforeRepair: 0,
+        keywordsForComplexScope: [
+            'casa', 'habitacion', 'vivienda', 'obra negra', 'recamara', 'recámaras',
+            'bano', 'baño', 'sala', 'comedor', 'cocina', 'castillo', 'cadena',
+            'zapata', 'cimentacion', 'cimentación', 'techado', 'lamina', 'lámina', 'piso'
+        ]
+    };
+
     static resolveLocation(projectInfo = {}, overrideLocation = null) {
         return overrideLocation || projectInfo.location || APP_CONFIG.defaultCountry;
     }
@@ -269,7 +279,12 @@ INSTRUCCIONES CLAVE:
 1. Usa el formato de descripción técnica detallada (Neodata).
 2. Aplica las reglas específicas para la especialidad "${projectInfo.type}".
 3. Calcula cantidades precisas.
-4. Incluye todos los accesorios y complementos necesarios (ej: codos, coples, cajas para tuberías).`;
+4. Incluye todos los accesorios y complementos necesarios (ej: codos, coples, cajas para tuberías).
+5. PROHIBIDO devolver partidas con "quantity" = 0 o "unitPrice" = 0.
+6. Si el usuario describe una obra completa o casa habitación, debes desglosar todas las etapas principales y NO resumirlo en pocas partidas.
+7. Para casa habitación/obra negra considera como mínimo, cuando apliquen: trazo, excavación, cimentación, desplante, castillos, cadenas, muros, techumbre/cubierta y piso.
+8. Toda partida debe incluir "calculation_basis" breve explicando cómo obtuviste la cantidad o la fuente del precio.
+9. Devuelve SOLO JSON válido.`;
 
             const result = await ErrorService.withRetry(
                 () => BackendAIService.sendPrompt(userPrompt, systemPrompt),
@@ -303,6 +318,18 @@ INSTRUCCIONES CLAVE:
                     prompt,
                     projectType: this.resolveProjectType(projectInfo),
                     location
+                });
+            }
+
+            const qualityIssues = this.analyzeGeneratedBudgetQuality(generatedItems, prompt);
+            if (qualityIssues.requiresRepair) {
+                console.warn('⚠️ Presupuesto generado con calidad insuficiente. Intentando enriquecimiento...', qualityIssues);
+                generatedItems = await this.enrichBudgetItemsWithAI({
+                    prompt,
+                    projectInfo,
+                    location,
+                    generatedItems,
+                    qualityIssues
                 });
             }
 
@@ -2243,6 +2270,87 @@ Devuelve SOLO JSON válido.`;
         } catch (error) {
             error.rawResponseText = `${rawText}\n\n--- REPAIR ATTEMPT ---\n${repairedText}`;
             throw error;
+        }
+    }
+
+    static analyzeGeneratedBudgetQuality(items, sourcePrompt = '') {
+        const safeItems = Array.isArray(items) ? items : [];
+        const zeroValueItems = safeItems.filter(item => {
+            const quantity = parseFloat(item?.quantity) || 0;
+            const unitPrice = parseFloat(item?.unitPrice) || 0;
+            return quantity <= 0 || unitPrice <= 0;
+        });
+
+        const normalizedPrompt = String(sourcePrompt || '').toLowerCase();
+        const hasComplexScope = this.BUDGET_COMPLEXITY_RULES.keywordsForComplexScope.some(keyword =>
+            normalizedPrompt.includes(keyword)
+        );
+
+        const missingBasisItems = safeItems.filter(item => !(item?.calculation_basis || '').trim());
+        const tooFewItemsForComplexScope = hasComplexScope && safeItems.length < this.BUDGET_COMPLEXITY_RULES.minItemsForComplexScope;
+        const requiresRepair =
+            zeroValueItems.length > this.BUDGET_COMPLEXITY_RULES.maxZeroValueItemsBeforeRepair ||
+            tooFewItemsForComplexScope;
+
+        return {
+            requiresRepair,
+            hasComplexScope,
+            itemCount: safeItems.length,
+            zeroValueCount: zeroValueItems.length,
+            missingBasisCount: missingBasisItems.length,
+            tooFewItemsForComplexScope
+        };
+    }
+
+    static async enrichBudgetItemsWithAI({ prompt, projectInfo, location, generatedItems, qualityIssues }) {
+        const systemInstruction = `Eres un auditor senior de presupuestos de construcción en México.
+Debes corregir y completar presupuestos de obra para que sean utilizables.
+
+Reglas:
+1. Devuelve SOLO un JSON array válido.
+2. Corrige cualquier partida con quantity = 0 o unitPrice = 0.
+3. Si faltan partidas esenciales, agrégalas.
+4. Mantén únicamente estas claves: "description", "unit", "unitPrice", "category", "quantity", "calculation_basis", "isCatalogItem".
+5. No resumas una obra completa en pocas partidas si el alcance requiere desglose.
+6. Todas las partidas deben quedar con cantidad y precio unitario mayores a cero.`;
+
+        const repairPrompt = `Revisa y corrige el siguiente presupuesto generado por IA.
+
+SOLICITUD ORIGINAL:
+${prompt}
+
+CONTEXTO:
+- Especialidad: ${this.resolveProjectType(projectInfo)}
+- Ubicación: ${location}
+
+PROBLEMAS DETECTADOS:
+- Partidas actuales: ${qualityIssues.itemCount}
+- Partidas con quantity o unitPrice en 0: ${qualityIssues.zeroValueCount}
+- Partidas sin calculation_basis: ${qualityIssues.missingBasisCount}
+- Alcance complejo detectado: ${qualityIssues.hasComplexScope ? 'sí' : 'no'}
+- Desglose insuficiente: ${qualityIssues.tooFewItemsForComplexScope ? 'sí' : 'no'}
+
+PRESUPUESTO ACTUAL:
+${JSON.stringify(generatedItems, null, 2)}
+
+Devuelve el presupuesto corregido y completo como JSON array válido.`;
+
+        const result = await ErrorService.withRetry(
+            () => BackendAIService.sendPrompt(repairPrompt, systemInstruction, { cache: false }),
+            1,
+            500
+        );
+
+        const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (!text) {
+            return generatedItems;
+        }
+
+        try {
+            return this.parseBudgetItemsResponse(text);
+        } catch (error) {
+            console.warn('⚠️ No se pudo enriquecer el presupuesto con IA. Se conserva el resultado original.', error);
+            return generatedItems;
         }
     }
 
