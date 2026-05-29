@@ -388,7 +388,12 @@ if (AI_API_KEY_FALLBACK) {
 console.log(`✅ Modelos disponibles: DeepSeek (${DEEPSEEK_MODEL}), Groq (${GROQ_MODEL}), Gemini (gemini-flash-latest)`);
 console.log(`✅ Directorio de uploads: ${uploadDir}`);
 
-function buildAIRequestBody(provider, { prompt, systemInstruction }) {
+function buildAIRequestBody(provider, { prompt, systemInstruction, functionType }) {
+    const funcType = functionType || FUNCTION_TYPE.GENERAL;
+    // Presupuestos y cronogramas necesitan más tokens de salida (JSON extenso)
+    const needsLargeOutput = funcType === FUNCTION_TYPE.BUDGET || funcType === FUNCTION_TYPE.SCHEDULE || funcType === FUNCTION_TYPE.APU;
+    const maxTokens = needsLargeOutput ? 16384 : 8192;
+
     if (provider === PROVIDERS.DEEPSEEK) {
         return {
             model: DEEPSEEK_MODEL,
@@ -397,7 +402,7 @@ function buildAIRequestBody(provider, { prompt, systemInstruction }) {
                 { role: "user", content: prompt }
             ],
             temperature: 0.2,
-            max_tokens: 8192,
+            max_tokens: maxTokens,
         };
     }
 
@@ -409,7 +414,7 @@ function buildAIRequestBody(provider, { prompt, systemInstruction }) {
                 { role: "user", content: prompt }
             ],
             temperature: 0.2,
-            max_tokens: 8192,
+            max_tokens: maxTokens,
         };
     }
 
@@ -429,7 +434,7 @@ function buildAIRequestBody(provider, { prompt, systemInstruction }) {
         temperature: 0.2,
         topP: 0.9,
         topK: 32,
-        maxOutputTokens: 8192,
+        maxOutputTokens: maxTokens,
     };
     requestBody.safetySettings = [
         { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
@@ -523,7 +528,7 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                 providerUsed = provider;
                 endpointUsed = provider === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT : (provider === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
                 maskedKey = apiKeyManager.maskKey(apiKey);
-                requestBody = buildAIRequestBody(provider, { prompt, systemInstruction });
+                requestBody = buildAIRequestBody(provider, { prompt, systemInstruction, functionType: funcType });
                 break;
             }
         }
@@ -602,7 +607,7 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                                 currentApiKey = nextKey;
                                 providerUsed = nextProvider;
                                 endpointUsed = providerUsed === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT : (providerUsed === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
-                                requestBody = buildAIRequestBody(providerUsed, { prompt, systemInstruction });
+                                requestBody = buildAIRequestBody(providerUsed, { prompt, systemInstruction, functionType: funcType });
                                 foundNext = true;
                                 break;
                             }
@@ -636,7 +641,7 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                                 currentApiKey = nextKey;
                                 providerUsed = nextProvider;
                                 endpointUsed = providerUsed === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT : (providerUsed === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
-                                requestBody = buildAIRequestBody(providerUsed, { prompt, systemInstruction });
+                                requestBody = buildAIRequestBody(providerUsed, { prompt, systemInstruction, functionType: funcType });
                                 foundNext = true;
                                 break;
                             }
@@ -774,7 +779,7 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
                 try {
                     const fallbackEndpoint = fallbackProvider === PROVIDERS.DEEPSEEK ? DEEPSEEK_ENDPOINT
                         : (fallbackProvider === PROVIDERS.GROQ ? GROQ_ENDPOINT : GEMINI_ENDPOINT);
-                    const fallbackBody = buildAIRequestBody(fallbackProvider, { prompt, systemInstruction });
+                    const fallbackBody = buildAIRequestBody(fallbackProvider, { prompt, systemInstruction, functionType: funcType });
                     const fallbackFetchOpts = {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
