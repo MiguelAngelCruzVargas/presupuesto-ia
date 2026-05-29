@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { AlertTriangle, X, FolderOpen, Database, Trash2, Printer, Package, Ruler, Calendar, Calculator, Edit, Info, Camera, Upload, Wand2, Plus } from 'lucide-react';
+import { AlertTriangle, X, FolderOpen, Database, Trash2, Printer, Package, Ruler, Calendar, Calculator, Edit, Info, Camera, Upload, Wand2, Plus, Sparkles } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
 import { useProject } from '../context/ProjectContext';
