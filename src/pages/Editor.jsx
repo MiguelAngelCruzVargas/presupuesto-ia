@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Save, Bot, Sparkles, AlertTriangle, FileText, X, FolderOpen, Database, Trash2, Plus, Printer, Package, Ruler, Calendar, Calculator, Edit, Info, Camera, Share2, Upload, Wand2, CheckCircle2, Clock3 } from 'lucide-react';
+import { AlertTriangle, X, Database, Trash2, Printer, Package, Ruler, Calendar, Calculator, Edit, Info, Camera, Upload, Wand2 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
 import { useProject } from '../context/ProjectContext';
@@ -29,7 +29,15 @@ import BudgetAnalysisModal from '../components/budget/BudgetAnalysisModal';
 import ShareProjectModal from '../components/sharing/ShareProjectModal';
 import TechnicalDescriptionViewer from '../components/budget/TechnicalDescriptionViewer';
 import CostConceptsModal from '../components/budget/CostConceptsModal';
+import ProjectEditorHeader from '../components/budget/ProjectEditorHeader';
 import { APP_CONFIG, createDefaultProjectInfo } from '../config/appConfig';
+import {
+    BUDGET_CATEGORIES,
+    BUDGET_UNIT_OPTIONS,
+    SELECT_OPTION_CLASS_NAME
+} from '../config/editorConfig';
+import AIGenerationStatusModal from '../components/budget/AIGenerationStatusModal';
+import AIBudgetCommandCenter from '../components/budget/AIBudgetCommandCenter';
 
 import ConfirmModal from '../components/ui/ConfirmModal';
 
@@ -45,41 +53,15 @@ const Editor = () => {
         calculateSubtotal, calculateTotal, getCalculations, showToast, catalog
     } = useProject();
     const { checkLimit, incrementUsage, isPro } = useSubscription();
-    const budgetCategories = ['Materiales', 'Mano de Obra', 'Equipos', 'Instalaciones', 'Obra Civil'];
-    const specialtyOptions = [
-        'General',
-        'Obra Civil',
-        'Albañilería',
-        'Instalación Eléctrica',
-        'Instalación Hidrosanitaria',
-        'Instalación de Gas',
-        'Acabados',
-        'Estructura',
-        'Herrería y Aluminio',
-        'Carpintería',
-        'Aire Acondicionado / Clima',
-        'Voz y Datos',
-        'Jardinería y Paisajismo'
-    ];
-    const budgetUnitOptions = [
-        { value: 'pza', label: 'Pza' },
-        { value: 'und', label: 'Und' },
-        { value: 'lote', label: 'Lote' },
-        { value: 'm', label: 'm' },
-        { value: 'ml', label: 'ml' },
-        { value: 'm²', label: 'm²' },
-        { value: 'm³', label: 'm³' },
-        { value: 'kg', label: 'kg' },
-        { value: 'ton', label: 'Ton' },
-        { value: 'lt', label: 'Lt' },
-        { value: 'jgo', label: 'Jgo' },
-        { value: 'servicio', label: 'Servicio' },
-        { value: 'global', label: 'Global' }
-    ];
-    const selectOptionClassName = 'bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100';
 
     const [aiPrompt, setAiPrompt] = useState('');
     const [isAiLoading, setIsAiLoading] = useState(false);
+    const [aiGenerationStatus, setAiGenerationStatus] = useState({
+        isOpen: false,
+        status: 'idle',
+        title: '',
+        message: ''
+    });
     const [showAnalysisModal, setShowAnalysisModal] = useState(false);
     const [technicalDescription, setTechnicalDescription] = useState('');
     const [technicalDescriptionMeta, setTechnicalDescriptionMeta] = useState(null);
@@ -211,6 +193,7 @@ const Editor = () => {
     const [lastSaved, setLastSaved] = useState(null);
     const [isAutoSaving, setIsAutoSaving] = useState(false);
     const savedStateRef = React.useRef(null);
+    const aiStatusTimeoutRef = React.useRef(null);
 
     // Confirm Modal State
     const [confirmModal, setConfirmModal] = useState({
@@ -639,6 +622,12 @@ const Editor = () => {
         }
 
         setIsAiLoading(true);
+        setAiGenerationStatus({
+            isOpen: true,
+            status: 'loading',
+            title: 'Generando presupuesto',
+            message: 'La IA está analizando el alcance, calculando cantidades y armando las partidas.'
+        });
         try {
             const generatedItems = await AIBudgetService.generateBudgetFromPrompt(aiPrompt, projectInfo);
             setItems(generatedItems);
@@ -650,14 +639,41 @@ const Editor = () => {
 
             setAiPrompt('');
             showToast('Presupuesto generado con éxito', 'success');
+            setAiGenerationStatus({
+                isOpen: true,
+                status: 'success',
+                title: 'Presupuesto generado',
+                message: `Se generaron ${generatedItems.length} partida${generatedItems.length !== 1 ? 's' : ''}. Ya puedes revisar y editar el detalle.`
+            });
+
+            if (aiStatusTimeoutRef.current) {
+                clearTimeout(aiStatusTimeoutRef.current);
+            }
+            aiStatusTimeoutRef.current = setTimeout(() => {
+                setAiGenerationStatus(prev => ({ ...prev, isOpen: false }));
+            }, 1800);
         } catch (error) {
             const errorMessage = ErrorService.getErrorMessage(error);
             ErrorService.logError(error, 'Editor.generateBudgetFromAI');
             showToast(errorMessage, 'error', error);
+            setAiGenerationStatus({
+                isOpen: true,
+                status: 'error',
+                title: 'No se pudo generar el presupuesto',
+                message: errorMessage
+            });
         } finally {
             setIsAiLoading(false);
         }
     };
+
+    React.useEffect(() => {
+        return () => {
+            if (aiStatusTimeoutRef.current) {
+                clearTimeout(aiStatusTimeoutRef.current);
+            }
+        };
+    }, []);
 
     const generateTechnicalDescription = async () => {
         if (items.length === 0) {
@@ -1070,331 +1086,52 @@ const Editor = () => {
 
     return (
         <div className="space-y-6 animate-fadeIn pb-20">
-            {/* Header Editor */}
-            {/* Header Editor */}
-            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-6">
-                {/* Top Row: Project Name & Actions */}
-                <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
-                    <div className="flex-1 w-full md:w-auto">
-                        <label className="block text-xs font-bold text-slate-400 dark:text-slate-400 uppercase mb-1">Proyecto</label>
-                        <input
-                            value={projectInfo.project || ''}
-                            onChange={(e) => setProjectInfo({ ...projectInfo, project: e.target.value })}
-                            className="w-full font-bold text-2xl text-slate-800 dark:text-slate-100 bg-transparent border-b border-transparent hover:border-slate-200 dark:hover:border-slate-600 focus:border-blue-500 outline-none placeholder-slate-300 dark:placeholder-slate-500 transition-colors"
-                            placeholder="Nombre del Proyecto"
-                        />
-                    </div>
-                    <div className="flex flex-wrap gap-2 self-stretch xl:self-center xl:justify-end items-center">
-                        {/* Indicador de cambios sin guardar */}
-                        {hasUnsavedChanges && !isDemoMode && (
-                            <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-lg text-sm font-medium border border-amber-300 dark:border-amber-700">
-                                <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
-                                Sin guardar
-                                {isAutoSaving && <span className="text-xs">(Guardando...)</span>}
-                            </div>
-                        )}
-                        {lastSaved && !hasUnsavedChanges && !isDemoMode && (
-                            <div className="hidden md:flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                <CheckCircle2 size={14} className="text-emerald-500" />
-                                Guardado {lastSaved.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                        )}
-                        <button
-                            onClick={handleStartNewProject}
-                            className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg transition border border-emerald-200"
-                            title="Comenzar un presupuesto nuevo"
-                        >
-                            <Plus size={18} />
-                            <span className="hidden xl:inline">Nuevo</span>
-                        </button>
-                        <button
-                            onClick={() => handleSaveProject(false)}
-                            disabled={isSaving || isAutoSaving}
-                            className={`flex items-center gap-2 ${isDemoMode ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'} text-white px-4 py-2 rounded-lg transition shadow-sm font-medium ${isSaving || isAutoSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            title={isDemoMode ? 'Crear cuenta para guardar' : isAutoSaving ? 'Guardando automáticamente...' : hasUnsavedChanges ? 'Guardar cambios' : 'Guardar en Nube'}
-                        >
-                            {isSaving || isAutoSaving ? (
-                                <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
-                            ) : (
-                                <Save size={18} />
-                            )}
-                            <span className="hidden xl:inline">
-                                {isDemoMode ? 'Guardar (Requiere Cuenta)' : isAutoSaving ? 'Guardando...' : 'Guardar'}
-                            </span>
-                        </button>
+            <AIGenerationStatusModal
+                status={aiGenerationStatus}
+                onClose={() => setAiGenerationStatus(prev => ({ ...prev, isOpen: false }))}
+            />
 
-                        <button
-                            onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                console.log('Botón Abrir clickeado');
-                                handleOpenLoadModal();
-                            }}
-                            className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg transition"
-                            title="Abrir Proyecto"
-                        >
-                            <FolderOpen size={18} />
-                            <span className="hidden xl:inline">Abrir</span>
-                        </button>
-                        <button
-                            onClick={handleCreateTemplate}
-                            className="flex items-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-4 py-2 rounded-lg transition"
-                            title="Guardar como Plantilla"
-                        >
-                            <FileText size={18} />
-                            <span className="hidden xl:inline">Plantilla</span>
-                        </button>
-                        <button
-                            onClick={() => {
-                                if (!projectInfo.id || projectInfo.id.startsWith('demo-')) {
-                                    showToast('Guarda el proyecto primero antes de compartirlo', 'warning');
-                                    return;
-                                }
-                                setShowShareModal(true);
-                            }}
-                            className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 px-4 py-2 rounded-lg transition"
-                            title="Compartir con Cliente"
-                        >
-                            <Share2 size={18} />
-                            <span className="hidden xl:inline">Compartir</span>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Bottom Row: Details Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 pt-4 border-t border-slate-100">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Cliente</label>
-                        <input
-                            value={projectInfo.client || ''}
-                            onChange={(e) => setProjectInfo({ ...projectInfo, client: e.target.value })}
-                            className="w-full text-slate-600 dark:text-slate-300 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-blue-500 outline-none py-1"
-                            placeholder="Cliente"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Ubicación</label>
-                        <input
-                            value={projectInfo.location || ''}
-                            onChange={(e) => setProjectInfo({ ...projectInfo, location: e.target.value })}
-                            className="w-full text-slate-600 dark:text-slate-300 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-blue-500 outline-none py-1"
-                            placeholder="Ciudad, Estado"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Especialidad</label>
-                        <select
-                            value={projectInfo.type || 'General'}
-                            onChange={(e) => setProjectInfo({ ...projectInfo, type: e.target.value })}
-                            className="w-full bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg py-1.5 px-3 text-sm font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500 dark:[color-scheme:dark]"
-                        >
-                            {specialtyOptions.map(option => (
-                                <option key={option} value={option} className={selectOptionClassName}>
-                                    {option}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex items-center gap-2">
-                            IVA (%)
-                            <button
-                                onClick={() => {
-                                    setCurrentCostConcept('iva');
-                                    setShowCostConceptsModal(true);
-                                }}
-                                className="text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors"
-                                title="¿Qué es el IVA y cuándo aplicarlo?"
-                            >
-                                <Info size={14} />
-                            </button>
-                        </label>
-                        <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={projectInfo.taxRate ?? 16}
-                            onChange={(e) => setProjectInfo({ ...projectInfo, taxRate: parseFloat(e.target.value) || 0 })}
-                            className="w-full text-slate-600 dark:text-slate-300 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-blue-500 outline-none py-1"
-                            placeholder="16"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex items-center gap-2">
-                            Indirectos (%)
-                            <button
-                                onClick={() => {
-                                    setCurrentCostConcept('indirectos');
-                                    setShowCostConceptsModal(true);
-                                }}
-                                className="text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors"
-                                title="¿Qué son los indirectos y cuándo aplicarlos?"
-                            >
-                                <Info size={14} />
-                            </button>
-                        </label>
-                        <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={projectInfo.indirect_percentage ?? 0}
-                            onChange={(e) => setProjectInfo({ ...projectInfo, indirect_percentage: parseFloat(e.target.value) || 0 })}
-                            className="w-full text-slate-600 dark:text-slate-300 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-blue-500 outline-none py-1"
-                            placeholder="0"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-1 flex items-center gap-2">
-                            Utilidad (%)
-                            <button
-                                onClick={() => {
-                                    setCurrentCostConcept('utilidad');
-                                    setShowCostConceptsModal(true);
-                                }}
-                                className="text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors"
-                                title="¿Qué es la utilidad y cuándo aplicarla?"
-                            >
-                                <Info size={14} />
-                            </button>
-                        </label>
-                        <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={projectInfo.profit_percentage ?? 0}
-                            onChange={(e) => setProjectInfo({ ...projectInfo, profit_percentage: parseFloat(e.target.value) || 0 })}
-                            className="w-full text-slate-600 dark:text-slate-300 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-blue-500 outline-none py-1"
-                            placeholder="0"
-                        />
-                    </div>
-                </div>
-
-                {!isDemoMode && (
-                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                        <div className={`rounded-2xl border px-4 py-3 ${hasUnsavedChanges
-                            ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
-                            : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300'
-                            }`}>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Estado del proyecto</p>
-                            <p className="mt-2 text-sm font-bold">
-                                {hasUnsavedChanges ? 'Hay cambios pendientes de guardar' : 'Proyecto sincronizado'}
-                            </p>
-                            <p className="mt-1 flex items-center gap-2 text-xs opacity-80">
-                                <Clock3 size={12} />
-                                {lastSaved
-                                    ? `Último guardado ${lastSaved.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`
-                                    : 'Aún no se ha guardado'}
-                            </p>
-                        </div>
-
-                        <div className={`rounded-2xl border px-4 py-3 ${scheduleFreshness.isStale
-                            ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
-                            : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300'
-                            }`}>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Cronograma</p>
-                            <p className="mt-2 text-sm font-bold">
-                                {!scheduleFreshness.hasContent
-                                    ? 'No generado todavía'
-                                    : scheduleFreshness.isStale
-                                        ? 'Desactualizado respecto a las partidas'
-                                        : 'Vigente con las partidas actuales'}
-                            </p>
-                            <p className="mt-1 text-xs opacity-80">
-                                {scheduleData?.generationMode
-                                    ? `Modo: ${scheduleData.generationMode}`
-                                    : 'Genera uno cuando necesites planeación'}
-                            </p>
-                        </div>
-
-                        <div className={`rounded-2xl border px-4 py-3 ${technicalDescriptionFreshness.isStale
-                            ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300'
-                            : 'border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-900/50 dark:bg-indigo-950/20 dark:text-indigo-300'
-                            }`}>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">Memoria descriptiva</p>
-                            <p className="mt-2 text-sm font-bold">
-                                {!technicalDescriptionFreshness.hasContent
-                                    ? 'No generada todavía'
-                                    : technicalDescriptionFreshness.isStale
-                                        ? 'Desactualizada respecto al presupuesto'
-                                        : 'Alineada con las partidas actuales'}
-                            </p>
-                            <p className="mt-1 text-xs opacity-80">
-                                {technicalDescriptionMeta?.generatedAt
-                                    ? `Generada ${new Date(technicalDescriptionMeta.generatedAt).toLocaleDateString(APP_CONFIG.locale)}`
-                                    : 'Puedes redactarla con IA cuando el presupuesto esté listo'}
-                            </p>
-                        </div>
-                    </div>
-                )}
-            </div>
+            <ProjectEditorHeader
+                hasUnsavedChanges={hasUnsavedChanges}
+                isAutoSaving={isAutoSaving}
+                isDemoMode={isDemoMode}
+                lastSaved={lastSaved}
+                projectInfo={projectInfo}
+                onProjectInfoChange={(updates) => setProjectInfo({ ...projectInfo, ...updates })}
+                onStartNewProject={handleStartNewProject}
+                onSaveProject={handleSaveProject}
+                isSaving={isSaving}
+                onOpenLoadModal={() => {
+                    console.log('Botón Abrir clickeado');
+                    handleOpenLoadModal();
+                }}
+                onCreateTemplate={handleCreateTemplate}
+                onShareProject={() => {
+                    if (!projectInfo.id || projectInfo.id.startsWith('demo-')) {
+                        showToast('Guarda el proyecto primero antes de compartirlo', 'warning');
+                        return;
+                    }
+                    setShowShareModal(true);
+                }}
+                scheduleFreshness={scheduleFreshness}
+                scheduleData={scheduleData}
+                technicalDescriptionFreshness={technicalDescriptionFreshness}
+                technicalDescriptionMeta={technicalDescriptionMeta}
+                onOpenCostConcept={(concept) => {
+                    setCurrentCostConcept(concept);
+                    setShowCostConceptsModal(true);
+                }}
+            />
 
             {/* AI Command Center */}
-            <div className="bg-white dark:bg-slate-800 p-1 rounded-2xl shadow-xl shadow-indigo-100/50 dark:shadow-indigo-900/20 border border-slate-100 dark:border-slate-700 relative overflow-hidden group-focus-within:ring-2 ring-indigo-500/20 transition-all">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
-                <div className="p-6">
-                    <div className="flex flex-col md:flex-row gap-4 items-start">
-                        <div className="flex-1 w-full relative">
-                            <div className="relative group">
-                                <div className="absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl opacity-0 group-focus-within:opacity-20 transition duration-500 blur"></div>
-                                <div className="relative flex items-center">
-                                    <Bot className="absolute left-4 text-indigo-500 w-6 h-6 animate-pulse" />
-                                    <input
-                                        value={aiPrompt}
-                                        onChange={(e) => setAiPrompt(e.target.value)}
-                                        onKeyDown={(e) => e.key === 'Enter' && generateBudgetFromAI()}
-                                        placeholder="Ej: 'Barda de 20m lineales x 2.5m de alto' (Incluye medidas para calcular cantidades)..."
-                                        className="w-full pl-14 pr-4 py-4 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl focus:border-indigo-500 dark:focus:border-indigo-400 focus:bg-white dark:focus:bg-slate-600 focus:outline-none focus:ring-0 transition-all text-lg shadow-inner placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-700 dark:text-slate-200"
-                                    />
-                                </div>
-                                <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 px-2">
-                                    <Info size={12} className="text-indigo-500" />
-                                    <span><strong>Tip:</strong> Para obtener cantidades exactas, especifica dimensiones. Ej: <em>"Losa de 100m2"</em> o <em>"Zanja de 50m x 0.60m"</em>.</span>
-                                </div>
-                            </div>
-
-                            {/* Quick Suggestions */}
-                            <div className="flex gap-2 mt-3 overflow-x-auto pb-2 scrollbar-hide">
-                                {['Cimentación', 'Muros de Block', 'Losa de Vigueta', 'Instalación Eléctrica', 'Acabados', 'Pintura'].map((suggestion) => (
-                                    <button
-                                        key={suggestion}
-                                        onClick={() => setAiPrompt(suggestion)}
-                                        className="px-3 py-1 bg-slate-100 dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-slate-500 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-full text-xs font-bold transition border border-transparent hover:border-indigo-200 dark:hover:border-indigo-700 whitespace-nowrap flex items-center"
-                                    >
-                                        <Plus size={10} className="mr-1" /> {suggestion}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div className="flex gap-3 w-full md:w-auto self-start">
-                            <button
-                                onClick={generateBudgetFromAI}
-                                disabled={isAiLoading}
-                                className="flex-1 md:flex-none bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white px-6 py-4 rounded-xl font-bold shadow-lg shadow-indigo-200 transform hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 min-w-[140px]"
-                            >
-                                {isAiLoading ? (
-                                    <>
-                                        <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                                        <span>Pensando...</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Sparkles size={20} />
-                                        <span>Generar</span>
-                                    </>
-                                )}
-                            </button>
-                            <button
-                                onClick={analyzeBudget}
-                                className="px-5 py-4 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-2 border-slate-200 dark:border-slate-600 rounded-xl font-bold hover:border-amber-400 dark:hover:border-amber-500 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition flex items-center gap-2"
-                                title="Auditar Presupuesto"
-                            >
-                                <AlertTriangle size={20} />
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <AIBudgetCommandCenter
+                aiPrompt={aiPrompt}
+                isAiLoading={isAiLoading}
+                onAiPromptChange={setAiPrompt}
+                onGenerateBudget={generateBudgetFromAI}
+                onAnalyzeBudget={analyzeBudget}
+                onQuickSuggestionClick={setAiPrompt}
+            />
 
 
             {/* Description Generator */}
@@ -1532,8 +1269,8 @@ const Editor = () => {
                                         onChange={(e) => handleUpdateItem(item.id, 'category', e.target.value)}
                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2 py-1.5 text-sm text-slate-700 dark:text-slate-100 outline-none dark:[color-scheme:dark]"
                                     >
-                                        {budgetCategories.map(category => (
-                                            <option key={category} value={category} className={selectOptionClassName}>
+                                        {BUDGET_CATEGORIES.map(category => (
+                                            <option key={category} value={category} className={SELECT_OPTION_CLASS_NAME}>
                                                 {category}
                                             </option>
                                         ))}
@@ -1547,8 +1284,8 @@ const Editor = () => {
                                         onChange={(e) => handleUpdateItem(item.id, 'unit', e.target.value)}
                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2 py-1.5 text-sm text-center text-slate-700 dark:text-slate-100 outline-none dark:[color-scheme:dark]"
                                     >
-                                        {budgetUnitOptions.map(unit => (
-                                            <option key={unit.value} value={unit.value} className={selectOptionClassName}>
+                                        {BUDGET_UNIT_OPTIONS.map(unit => (
+                                            <option key={unit.value} value={unit.value} className={SELECT_OPTION_CLASS_NAME}>
                                                 {unit.label}
                                             </option>
                                         ))}
@@ -1735,8 +1472,8 @@ const Editor = () => {
                                                 onChange={(e) => handleUpdateItem(item.id, 'category', e.target.value)}
                                                 className="w-full bg-transparent text-xs outline-none cursor-pointer text-slate-700 dark:text-slate-200 dark:[color-scheme:dark]"
                                             >
-                                                {budgetCategories.map(category => (
-                                                    <option key={category} value={category} className={selectOptionClassName}>
+                                                {BUDGET_CATEGORIES.map(category => (
+                                                    <option key={category} value={category} className={SELECT_OPTION_CLASS_NAME}>
                                                         {category}
                                                     </option>
                                                 ))}
@@ -1749,8 +1486,8 @@ const Editor = () => {
                                                 onChange={(e) => handleUpdateItem(item.id, 'unit', e.target.value)}
                                                 className="w-full text-center bg-transparent outline-none text-slate-500 dark:text-slate-300 text-xs dark:[color-scheme:dark]"
                                             >
-                                                {budgetUnitOptions.map(unit => (
-                                                    <option key={unit.value} value={unit.value} className={selectOptionClassName}>
+                                                {BUDGET_UNIT_OPTIONS.map(unit => (
+                                                    <option key={unit.value} value={unit.value} className={SELECT_OPTION_CLASS_NAME}>
                                                         {unit.label}
                                                     </option>
                                                 ))}
