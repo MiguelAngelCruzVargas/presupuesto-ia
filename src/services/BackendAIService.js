@@ -174,7 +174,9 @@ export const BackendAIService = {
             cacheKey: explicitCacheKey,
             cacheTtlMs = DEFAULT_CACHE_TTL_MS,
             forceRefresh = false,
-            retryDelaysMs = DEFAULT_RETRY_DELAYS_MS
+            retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
+            functionType,
+            userTier
         } = options || {};
 
         const cacheKey = buildCacheKey(prompt, systemInstruction, explicitCacheKey);
@@ -192,6 +194,8 @@ export const BackendAIService = {
             try {
                 const body = { prompt };
                 if (systemInstruction) body.systemInstruction = systemInstruction;
+                if (functionType) body.functionType = functionType;
+                if (userTier) body.userTier = userTier;
 
                 const response = await fetch('/api/ai', {
                     method: 'POST',

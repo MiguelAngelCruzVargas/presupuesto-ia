@@ -393,29 +393,42 @@ function buildAIRequestBody(provider, { prompt, systemInstruction, functionType 
     // Presupuestos y cronogramas necesitan más tokens de salida (JSON extenso)
     const needsLargeOutput = funcType === FUNCTION_TYPE.BUDGET || funcType === FUNCTION_TYPE.SCHEDULE || funcType === FUNCTION_TYPE.APU;
     const maxTokens = needsLargeOutput ? 16384 : 8192;
+    const needsJson = funcType === FUNCTION_TYPE.BUDGET ||
+        funcType === FUNCTION_TYPE.SCHEDULE ||
+        funcType === FUNCTION_TYPE.ANALYSIS ||
+        funcType === FUNCTION_TYPE.APU ||
+        funcType === FUNCTION_TYPE.PRICES;
 
     if (provider === PROVIDERS.DEEPSEEK) {
-        return {
+        const body = {
             model: DEEPSEEK_MODEL,
             messages: [
                 { role: "system", content: systemInstruction || "You are a helpful AI assistant." },
                 { role: "user", content: prompt }
             ],
-            temperature: 0.2,
+            temperature: 0.3,
             max_tokens: maxTokens,
         };
+        if (needsJson) {
+            body.response_format = { type: "json_object" };
+        }
+        return body;
     }
 
     if (provider === PROVIDERS.GROQ) {
-        return {
+        const body = {
             model: GROQ_MODEL,
             messages: [
                 { role: "system", content: systemInstruction || "You are a helpful AI assistant." },
                 { role: "user", content: prompt }
             ],
-            temperature: 0.2,
+            temperature: 0.3,
             max_tokens: maxTokens,
         };
+        if (needsJson) {
+            body.response_format = { type: "json_object" };
+        }
+        return body;
     }
 
     const requestBody = {
@@ -436,6 +449,11 @@ function buildAIRequestBody(provider, { prompt, systemInstruction, functionType 
         topK: 32,
         maxOutputTokens: maxTokens,
     };
+
+    if (needsJson) {
+        requestBody.generationConfig.responseMimeType = "application/json";
+    }
+
     requestBody.safetySettings = [
         { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
         { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },

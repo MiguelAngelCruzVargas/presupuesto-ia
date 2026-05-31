@@ -44,7 +44,7 @@ export const AIService = {
         const prompt = `Eres un experto en presupuestos de construcción en ${this.getDefaultCountry()}. \nGenera 3 descripciones profesionales y técnicas para una partida de presupuesto con las siguientes características:\n\n- Código/Clave: ${code || 'No especificado'}\n- Unidad: ${unit || 'No especificada'}\n- Categoría: ${category || this.getDefaultProjectType()}\n${partialDescription ? `- Descripción parcial: ${partialDescription}` : ''}\n${contextInfo}\n\nRequisitos:\n1. Descripciones técnicas y profesionales\n2. Incluir especificaciones relevantes\n3. Usar terminología de construcción mexicana\n4. Máximo 100 caracteres cada una\n5. Diferentes niveles de detalle (básica, media, detallada)\n\nResponde SOLO con las 3 descripciones separadas por saltos de línea, sin numeración ni texto adicional.`;
 
         try {
-            const result = await BackendAIService.sendPrompt(prompt);
+            const result = await BackendAIService.sendPrompt(prompt, null, { functionType: 'general' });
             const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
             const descriptions = text.split('\n').filter(l => l.trim().length > 0).slice(0, 3);
             return descriptions.length > 0 ? descriptions : [
@@ -113,7 +113,7 @@ export const AIService = {
         const prompt = `Eres un experto en costos de construcción en ${this.getDefaultCountry()}.\n\nBasándote en los siguientes precios de catálogo para partidas similares:\n\n${catalogInfo}\n\nSugiere un precio razonable para:\n- Descripción: ${description}\n- Unidad: ${unit}\n- Categoría: ${category || this.getDefaultProjectType()}\n\nEstadísticas del catálogo:\n- Precio promedio: $${avg.toFixed(2)}\n-- Rango: $${min.toFixed(2)} - $${max.toFixed(2)}\n\nResponde SOLO con un número (el precio sugerido en pesos mexicanos), sin símbolos ni texto adicional.`;
 
         try {
-            const result = await BackendAIService.sendPrompt(prompt);
+            const result = await BackendAIService.sendPrompt(prompt, null, { functionType: 'general' });
             const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
             const suggestedPrice = parseFloat(text.replace(/[^0-9.]/g, ''));
 
@@ -148,7 +148,7 @@ export const AIService = {
         const systemInstruction = `Eres "Doctor Obra", un experto auditor de presupuestos de construcción. Analiza presupuestos buscando errores, precios anómalos, omisiones y proporciona recomendaciones profesionales. Responde en HTML simple con formato claro.`;
 
         try {
-            const result = await BackendAIService.sendPrompt(prompt, systemInstruction);
+            const result = await BackendAIService.sendPrompt(prompt, systemInstruction, { functionType: 'general' });
             return result.candidates?.[0]?.content?.parts?.[0]?.text || 'No se pudo generar el análisis.';
         } catch (error) {
             console.error('Error analyzing budget with AI:', error);

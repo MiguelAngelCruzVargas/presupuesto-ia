@@ -276,7 +276,7 @@ INSTRUCCIONES CLAVE:
 9. Devuelve SOLO JSON válido.`;
 
             const result = await ErrorService.withRetry(
-                () => BackendAIService.sendPrompt(userPrompt, systemPrompt),
+                () => BackendAIService.sendPrompt(userPrompt, systemPrompt, { functionType: 'budget' }),
                 2,
                 1000
             );
@@ -632,7 +632,7 @@ IMPORTANTE:
             const systemInstruction = `Eres "Doctor Obra", un auditor experto de costos de construcción en ${location}. Tu trabajo es proteger la rentabilidad del constructor detectando errores costosos. Responde SIEMPRE en JSON válido.`;
 
             const result = await ErrorService.withRetry(
-                () => BackendAIService.sendPrompt(prompt, systemInstruction),
+                () => BackendAIService.sendPrompt(prompt, systemInstruction, { functionType: 'analysis' }),
                 2,
                 1000
             );
@@ -694,7 +694,7 @@ Analiza presupuestos buscando errores, precios anómalos para la región, omisio
 Responde SOLO en HTML simple y claro, sin scripts ni estilos inline complejos.`;
 
             const result = await ErrorService.withRetry(
-                () => BackendAIService.sendPrompt(prompt, systemInstruction),
+                () => BackendAIService.sendPrompt(prompt, systemInstruction, { functionType: 'general' }),
                 2,
                 1000
             );
@@ -748,7 +748,7 @@ Requisitos:
 Escribe descripciones técnicas, profesionales y claras.`;
 
             const result = await ErrorService.withRetry(
-                () => BackendAIService.sendPrompt(prompt, systemInstruction),
+                () => BackendAIService.sendPrompt(prompt, systemInstruction, { functionType: 'general' }),
                 2,
                 1000
             );
@@ -833,7 +833,7 @@ Escribe descripciones técnicas, profesionales y claras.`;
 
                 const userPrompt = `Lista de conceptos a actualizar para ${location}:\n${itemsList}`;
 
-                const result = await BackendAIService.sendPrompt(userPrompt, systemPrompt);
+                const result = await BackendAIService.sendPrompt(userPrompt, systemPrompt, { functionType: 'prices' });
                 const responseText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
                 const cleanedResponse = this.cleanJson(responseText);
@@ -973,7 +973,7 @@ ${itemsList}
             `.trim();
 
             const result = await ErrorService.withRetry(
-                () => BackendAIService.sendPrompt(userPrompt, systemPrompt),
+                () => BackendAIService.sendPrompt(userPrompt, systemPrompt, { functionType: 'schedule' }),
                 1,
                 600
             );
@@ -1481,7 +1481,7 @@ INSTRUCCIONES HÍBRIDAS - IA + BASE MAESTRA:
 9. Justifica TODOS los cálculos en "notes" indicando: "Base Maestra Neodata" o "Estimado por IA"
 10. SOLO documenta suposiciones técnicas cuando NO uses datos de Base Maestra`;
 
-            const result = await BackendAIService.sendPrompt(userPrompt, systemPrompt);
+            const result = await BackendAIService.sendPrompt(userPrompt, systemPrompt, { functionType: 'prices' });
             const responseText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
             const cleanedResponse = this.cleanJson(responseText);
@@ -1808,7 +1808,7 @@ INSTRUCCIONES ESPECÍFICAS:
 
 RECUERDA: IGNORA COMPLETAMENTE LA CANTIDAD DEL PROYECTO (${item.quantity || 1}). SOLO CALCULA PARA 1 ${item.unit || 'unidad'}.`;
 
-            const result = await BackendAIService.sendPrompt(userPrompt, systemPrompt);
+            const result = await BackendAIService.sendPrompt(userPrompt, systemPrompt, { functionType: 'apu' });
             const responseText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
             const cleanedResponse = this.cleanJson(responseText);
@@ -2058,7 +2058,7 @@ RECUERDA: IGNORA COMPLETAMENTE LA CANTIDAD DEL PROYECTO (${item.quantity || 1}).
         `;
 
         try {
-            const result = await BackendAIService.sendPrompt(prompt);
+            const result = await BackendAIService.sendPrompt(prompt, null, { functionType: 'prices' });
             const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
             const cleanJson = this.cleanJson(text);
             return JSON.parse(cleanJson);
@@ -2123,7 +2123,7 @@ CRITERIO DE SALIDA:
 - Entrega SOLO el JSON array de 3 strings.`;
 
         try {
-            const result = await BackendAIService.sendPrompt(prompt, systemInstruction, { cache: false });
+            const result = await BackendAIService.sendPrompt(prompt, systemInstruction, { cache: false, functionType: 'prices' });
             const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
             const descriptions = this.parseDescriptionSuggestions(text);
             return descriptions.length > 0
@@ -2252,7 +2252,7 @@ ${rawText}
 Devuelve SOLO JSON válido.`;
 
         const repairResult = await ErrorService.withRetry(
-            () => BackendAIService.sendPrompt(repairPrompt, systemInstruction, { cache: false }),
+            () => BackendAIService.sendPrompt(repairPrompt, systemInstruction, { cache: false, functionType: 'budget' }),
             1,
             500
         );
@@ -2343,7 +2343,7 @@ ${JSON.stringify(generatedItems, null, 2)}
 Devuelve el presupuesto corregido y completo como JSON array válido.`;
 
         const result = await ErrorService.withRetry(
-            () => BackendAIService.sendPrompt(repairPrompt, systemInstruction, { cache: false }),
+            () => BackendAIService.sendPrompt(repairPrompt, systemInstruction, { cache: false, functionType: 'budget' }),
             1,
             500
         );
@@ -2528,7 +2528,7 @@ Reglas:
         promptText += `\nDevuelve SOLO el JSON {"suggested": number}.`;
 
         try {
-            const result = await BackendAIService.sendPrompt(promptText, systemInstruction, { cache: false });
+            const result = await BackendAIService.sendPrompt(promptText, systemInstruction, { cache: false, functionType: 'prices' });
             const text = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
             const aiSuggestedPrice = this.parseSuggestedPriceValue(text);
 
