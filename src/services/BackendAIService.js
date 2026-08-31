@@ -1,3 +1,5 @@
+import { supabase } from '../lib/supabaseClient';
+
 // src/services/BackendAIService.js
 // Wrapper around the Express proxy that forwards AI requests.
 // It hides the API key from the client and returns the raw AI response.
@@ -6,6 +8,22 @@ const AI_CACHE_PREFIX = 'presupuesto_ia_ai_cache:';
 const DEFAULT_CACHE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_RETRY_DELAYS_MS = [700, 1400];
 const memoryCache = new Map();
+
+/**
+ * Cabecera con la sesion de Supabase. El proxy la exige para no atender
+ * peticiones anonimas: sin esto, cualquiera en internet podia gastar los
+ * creditos de IA de pago.
+ */
+const authHeaders = async () => {
+    try {
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token;
+        return token ? { Authorization: `Bearer ${token}` } : {};
+    } catch {
+        return {};
+    }
+};
+
 
 const safeStorage = {
     get(key) {
@@ -199,7 +217,7 @@ export const BackendAIService = {
 
                 const response = await fetch('/api/ai', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
                     body: JSON.stringify(body),
                 });
 

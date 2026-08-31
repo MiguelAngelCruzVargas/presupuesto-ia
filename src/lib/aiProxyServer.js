@@ -10,6 +10,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { apiKeyManager, FUNCTION_TYPE, USER_TIER, PROVIDERS } from '../services/ApiKeyManager.js';
+import { supabase } from './supabaseClient.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
@@ -157,8 +158,43 @@ setInterval(() => {
 app.set('trust proxy', 1);
 
 // Middleware de rate limiting mejorado
+/**
+ * Exige sesión iniciada de Supabase.
+ *
+ * Mientras el proxy corría solo en localhost esto no hacía falta: nadie más
+ * llegaba. Al publicarlo en internet, cualquiera podía pedirle a la IA sin
+ * cuenta (probado: respondía) y gastar los créditos de pago, o subir imágenes
+ * hasta llenar el disco. El frontend ya tiene el token de Supabase, así que
+ * solo hay que exigirlo y validarlo.
+ */
+const requireAuth = async (req, res, next) => {
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : null;
+
+    if (!token) {
+        return res.status(401).json({ error: 'Necesitas iniciar sesión para usar esta función.' });
+    }
+
+    try {
+        const { data, error } = await supabase.auth.getUser(token);
+        if (error || !data?.user) {
+            return res.status(401).json({ error: 'Tu sesión expiró. Vuelve a iniciar sesión.' });
+        }
+        req.usuario = data.user;
+        next();
+    } catch (error) {
+        console.error('Error validando la sesión:', error);
+        return res.status(401).json({ error: 'No se pudo validar la sesión.' });
+    }
+};
+
 const rateLimiter = (req, res, next) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.connection.remoteAddress || 'unknown';
+    // Con sesión, los límites se cuentan por usuario y no por IP: así los topes
+    // de los planes Free/Pro significan algo. Sin sesión se cae a la IP.
+    const ip = req.usuario?.id
+        || req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+        || req.connection.remoteAddress
+        || 'unknown';
     const now = Date.now();
 
     // Identificar el tipo de función del request (si existe)
@@ -289,7 +325,7 @@ const upload = multer({
     }
 });
 
-app.post('/api/upload', upload.single('file'), (req, res) => {
+app.post('/api/upload', requireAuth, rateLimiter, upload.single('file'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
@@ -543,7 +579,7 @@ function isAuthError(status, lowerMessage) {
 }
 
 
-app.post('/api/ai', rateLimiter, async (req, res) => {
+app.post('/api/ai', requireAuth, rateLimiter, async (req, res) => {
     try {
         const { prompt, systemInstruction, userTier, functionType } = req.body;
 
@@ -895,7 +931,7 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
 // ============================================
 // ENDPOINT PARA CHAT DE SOPORTE (con historial)
 // ============================================
-app.post('/api/ai/chat', rateLimiter, async (req, res) => {
+app.post('/api/ai/chat', requireAuth, rateLimiter, async (req, res) => {
     try {
         const { message, history, systemInstruction, userTier } = req.body;
 
@@ -1092,7 +1128,7 @@ app.post('/api/ai/chat', rateLimiter, async (req, res) => {
 // ============================================
 // ENDPOINT PARA EXTRACCIÓN DE PDF CON IA
 // ============================================
-app.post('/api/ai/extract-pdf', upload.single('file'), async (req, res) => {
+app.post('/api/ai/extract-pdf', requireAuth, rateLimiter, upload.single('file'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No PDF file uploaded' });
@@ -1398,7 +1434,7 @@ app.post('/api/ai/extract-pdf', upload.single('file'), async (req, res) => {
 // ============================================
 // ENDPOINT PARA BÚSQUEDA DE PRECIOS CON IA
 // ============================================
-app.post('/api/ai/pricesearch', rateLimiter, async (req, res) => {
+app.post('/api/ai/pricesearch', requireAuth, rateLimiter, async (req, res) => {
     try {
         const { material, locations, userTier } = req.body;
 

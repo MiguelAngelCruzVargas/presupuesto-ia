@@ -1,3 +1,5 @@
+import { supabase } from '../lib/supabaseClient';
+
 /**
  * ImageUploadService
  * Servicio para subida y gestión de imágenes
@@ -401,8 +403,20 @@ export class ImageUploadService {
             const apiBaseUrl = import.meta.env.VITE_API_URL;
             const uploadUrl = apiBaseUrl ? `${apiBaseUrl}/api/upload` : '/api/upload';
 
+            // El proxy exige sesión: sin esto cualquiera podría subir imágenes
+            // hasta llenar el disco del servidor.
+            let cabeceras = {};
+            try {
+                const { data } = await supabase.auth.getSession();
+                const token = data?.session?.access_token;
+                if (token) cabeceras.Authorization = `Bearer ${token}`;
+            } catch (error) {
+                console.warn('No se pudo leer la sesión para subir la imagen:', error);
+            }
+
             const response = await fetch(uploadUrl, {
                 method: 'POST',
+                headers: cabeceras,
                 body: formData
             });
 
