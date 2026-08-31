@@ -6,6 +6,7 @@ El proxy de IA y la subida de fotos corren en el VPS de Contabo
 | | |
 |---|---|
 | URL pública | https://presupuesto.169-58-78-148.sslip.io |
+| Frontend | estático en `/opt/presupuesto/frontend`, servido por Caddy |
 | Contenedor | `presupuesto-backend` (puerto interno 8011) |
 | Código | `/opt/presupuesto` |
 | Variables | `/opt/presupuesto/.env` (permisos 600, fuera del repo) |
@@ -24,8 +25,28 @@ Comparte la máquina con `fiscalia-backend` (puerto 8010), que no se toca.
 - **sslip.io**: `presupuesto.169-58-78-148.sslip.io` resuelve solo a la IP del
   VPS, así Let's Encrypt emite certificado sin comprar dominio.
 - **Solo escucha en 127.0.0.1**: nadie llega al backend sin pasar por Caddy.
+- **Frontend y API en el mismo dominio**: Caddy manda `/api/*` y `/uploads/*` al
+  backend y todo lo demás al frontend. Al compartir origen no hay CORS ni mixed
+  content, y `VITE_API_URL` puede quedarse vacía: el código usa rutas relativas,
+  igual que en desarrollo.
+- **`try_files {path} /index.html`**: la app tiene 27 rutas de React Router. Sin
+  esa línea, recargar en `/editor/123` daría 404.
 
-## Redesplegar
+## Redesplegar el frontend
+
+```bash
+npm run build                      # VITE_API_URL debe quedar SIN definir
+tar czf /tmp/frontend.tgz -C dist .
+
+cd ../../progrmas_de_python/crypto_oracle-main/contabo-mcp
+MSYS_NO_PATHCONV=1 python contabo_mcp.py vps_subir /tmp/frontend.tgz /opt/presupuesto/frontend.tgz
+MSYS_NO_PATHCONV=1 PYTHONIOENCODING=utf-8 python contabo_mcp.py vps_ssh \
+  "cd /opt/presupuesto && rm -rf frontend/* && tar xzf frontend.tgz -C frontend && rm frontend.tgz"
+```
+
+No hay que reiniciar nada: Caddy sirve los archivos nuevos al instante.
+
+## Redesplegar el backend
 
 Desde la raíz del proyecto, en Git Bash:
 
