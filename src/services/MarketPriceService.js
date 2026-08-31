@@ -139,10 +139,16 @@ export class MarketPriceService {
                 return [];
             }
 
-            // Calcular relevancia y priorizar fuentes oficiales
-            const descriptionTerms = description.toLowerCase().split(/\s+/).filter(t => t.length > 3);
+            // Sin acentos: la IA y la gente escriben "albanil" y "excavacion"
+            // tanto como "albañil" y "excavación". Comparando el texto crudo,
+            // "Mano de obra albanil" no encontraba "Oficial albañil" y acababa
+            // en "Maestro de obra" solo porque comparten la palabra "obra".
+            const sinAcentos = (texto = '') =>
+                texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+            const descriptionTerms = sinAcentos(description).split(/\s+/).filter(t => t.length > 3);
             const scoredResults = data.map(item => {
-                const itemText = item.description.toLowerCase();
+                const itemText = sinAcentos(item.description);
 
                 // Puntos por coincidencias reales de texto. Se guarda aparte
                 // para poder exigir al menos una antes de dar por buena la
@@ -152,6 +158,13 @@ export class MarketPriceService {
                 descriptionTerms.forEach(term => {
                     if (itemText.includes(term)) textScore += 1;
                 });
+
+                // Qué tanto del concepto encontrado es lo que buscabas.
+                // Sirve para desempatar: con el mismo número de coincidencias,
+                // gana el concepto corto y específico ("Oficial albañil") sobre
+                // el largo que solo comparte una palabra suelta.
+                const palabrasDelCandidato = itemText.split(/\s+/).filter(t => t.length > 3).length || 1;
+                const cobertura = textScore / palabrasDelCandidato;
 
                 let score = textScore;
 
@@ -165,7 +178,7 @@ export class MarketPriceService {
                     score += 5;
                 }
 
-                return { ...item, textScore, relevanceScore: score };
+                return { ...item, textScore, cobertura, relevanceScore: score };
             });
 
             // Descartar lo que no comparte NI UNA palabra con lo buscado.
@@ -190,7 +203,12 @@ export class MarketPriceService {
                 if (b.relevanceScore !== a.relevanceScore) {
                     return b.relevanceScore - a.relevanceScore;
                 }
-                // Si mismo score, priorizar oficiales
+                // Con el mismo puntaje, gana el concepto mas especifico en vez
+                // del primero por orden alfabetico, que era lo que pasaba antes.
+                if (b.cobertura !== a.cobertura) {
+                    return b.cobertura - a.cobertura;
+                }
+                // Si sigue el empate, priorizar oficiales
                 const aOfficial = officialSources.includes(a.source) ? 1 : 0;
                 const bOfficial = officialSources.includes(b.source) ? 1 : 0;
                 return bOfficial - aOfficial;
