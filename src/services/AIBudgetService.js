@@ -414,11 +414,16 @@ INSTRUCCIONES CLAVE:
                                     item.unit = matchedRecord.unit || item.unit;
                                     item.unitPrice = referencePrice;
                                     
+                                    // 'referencia_base' son valores indicativos de mercado:
+                                    // se etiquetan aparte para que en el editor no se
+                                    // vean igual que un precio verificado.
                                     const sourceName = matchedRecord.source === 'cdmx_tabulador'
                                         ? 'Tabulador Oficial CDMX'
                                         : matchedRecord.source === 'construbase_libre'
                                             ? 'CONSTRUBASE/ADES'
-                                            : 'Base de Datos Maestra';
+                                            : matchedRecord.source === 'referencia_base'
+                                                ? 'Referencia de mercado'
+                                                : 'Base de Datos Maestra';
 
                                     item.calculation_basis = `[Coincidencia exacta con ${sourceName}] ${item.calculation_basis || ''}`.trim();
                                     descReplacedCount++;
@@ -446,7 +451,9 @@ INSTRUCCIONES CLAVE:
                                             ? 'Tabulador Oficial CDMX'
                                             : matchedRecord.source === 'construbase_libre'
                                                 ? 'CONSTRUBASE'
-                                                : 'Base de Datos Maestra';
+                                                : matchedRecord.source === 'referencia_base'
+                                                    ? 'Referencia de mercado'
+                                                    : 'Base de Datos Maestra';
 
                                         if (!item.calculation_basis.includes(sourceName)) {
                                             item.calculation_basis = `${item.calculation_basis || ''} [Precio de ${sourceName}]`.trim();

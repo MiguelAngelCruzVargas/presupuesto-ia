@@ -6,6 +6,7 @@ import { useProject } from '../context/ProjectContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import LimitModal from '../components/subscription/LimitModal';
 import { formatCurrency, numberToWords } from '../utils/format';
+import { getOrigenPrecio, ORIGEN_PRECIO } from '../utils/origenPrecio';
 import { generateId } from '../utils/helpers';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -1173,6 +1174,60 @@ const Editor = () => {
             {/* Main Table Card */}
             <Card className="p-0 overflow-visible bg-transparent shadow-none lg:bg-white lg:shadow-xl lg:dark:bg-slate-800">
 
+                {/* Cuánto del presupuesto está respaldado y cuánto lo estimó la IA.
+                    Sin esto había que abrir partida por partida para saberlo. */}
+                {items.length > 0 && (() => {
+                    const porNivel = {};
+                    let totalGeneral = 0;
+
+                    items.forEach(item => {
+                        const importe = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+                        if (importe <= 0) return;
+                        totalGeneral += importe;
+
+                        const origen = getOrigenPrecio(item);
+                        const nivel = origen?.nivel || 'ia';
+                        if (!porNivel[nivel]) porNivel[nivel] = { ...ORIGEN_PRECIO[nivel], importe: 0, partidas: 0 };
+                        porNivel[nivel].importe += importe;
+                        porNivel[nivel].partidas += 1;
+                    });
+
+                    const niveles = Object.values(porNivel).filter(Boolean);
+                    if (totalGeneral <= 0 || niveles.length === 0) return null;
+
+                    const estimadoIA = porNivel.ia;
+                    const porcentajeIA = estimadoIA ? Math.round((estimadoIA.importe / totalGeneral) * 100) : 0;
+
+                    return (
+                        <div className="mb-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4">
+                            <div className="flex flex-wrap items-center gap-2 mb-3">
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                    Respaldo de los precios
+                                </span>
+                                {porcentajeIA >= 50 && (
+                                    <span className="text-xs font-bold text-amber-700 dark:text-amber-300">
+                                        · {porcentajeIA}% del monto lo estimó la IA, revísalo antes de cotizar
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {niveles
+                                    .sort((a, b) => b.importe - a.importe)
+                                    .map(nivel => (
+                                        <div
+                                            key={nivel.nivel}
+                                            className={`px-3 py-1.5 rounded-xl border text-xs font-bold ${nivel.clases}`}
+                                            title={nivel.titulo}
+                                        >
+                                            {nivel.etiqueta}: {formatCurrency(nivel.importe)}
+                                            <span className="font-medium opacity-75"> · {nivel.partidas} partida{nivel.partidas === 1 ? '' : 's'}</span>
+                                        </div>
+                                    ))}
+                            </div>
+                        </div>
+                    );
+                })()}
+
                 {/* Mobile View - Cards */}
                 <div className="lg:hidden space-y-4">
                     {items.length === 0 && (
@@ -1330,6 +1385,19 @@ const Editor = () => {
                                             className="w-full bg-transparent border-b border-slate-200 dark:border-slate-600 py-1 text-sm outline-none font-mono text-slate-700 dark:text-slate-300"
                                             placeholder="0.00"
                                         />
+                                        {/* Mismo distintivo de origen que en la vista de escritorio */}
+                                        {(() => {
+                                            const origen = getOrigenPrecio(item);
+                                            if (!origen) return null;
+                                            return (
+                                                <span
+                                                    className={`mt-1 inline-block px-1.5 py-0.5 rounded border text-[10px] font-bold leading-none ${origen.clases}`}
+                                                    title={origen.titulo}
+                                                >
+                                                    {origen.etiqueta}
+                                                </span>
+                                            );
+                                        })()}
                                     </div>
                                     <div className="text-right">
                                         <label className="text-[10px] uppercase text-slate-400 font-bold block">Total</label>
@@ -1556,6 +1624,20 @@ const Editor = () => {
                                                 placeholder="0.00"
                                                 className="w-full text-right bg-transparent outline-none font-mono text-slate-600 dark:text-slate-300 focus:bg-slate-100 dark:focus:bg-slate-700 rounded px-2"
                                             />
+                                            {/* De dónde salió el precio: un valor verificado y uno
+                                                inventado por la IA se veían idénticos hasta ahora */}
+                                            {(() => {
+                                                const origen = getOrigenPrecio(item);
+                                                if (!origen) return null;
+                                                return (
+                                                    <div
+                                                        className={`mt-1 inline-flex w-full justify-end px-1.5 py-0.5 rounded border text-[10px] font-bold leading-none ${origen.clases}`}
+                                                        title={origen.titulo}
+                                                    >
+                                                        {origen.etiqueta}
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                         <td className="p-4 text-right font-mono font-bold text-slate-800 dark:text-slate-200">{formatCurrency(item.quantity * item.unitPrice)}</td>
                                         <td className="p-2 text-center">
