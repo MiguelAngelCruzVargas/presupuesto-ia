@@ -115,17 +115,21 @@ const SharedProjectPage = () => {
         return { subtotal, tax, total };
     };
 
-    const handleExportPDF = () => {
+    const handleExportPDF = async () => {
         if (!projectData) return;
 
         const { subtotal, tax, total } = calculateTotals();
-        PDFService.exportBudget(
-            projectData.projectInfo,
-            projectData.items,
-            total,
-            subtotal,
-            tax
-        );
+        try {
+            await PDFService.exportBudget(
+                projectData.projectInfo,
+                projectData.items,
+                total,
+                subtotal,
+                tax
+            );
+        } catch (error) {
+            console.error('Error al exportar el PDF del proyecto compartido:', error);
+        }
     };
 
     if (loading) {

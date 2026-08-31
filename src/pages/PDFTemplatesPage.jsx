@@ -40,7 +40,12 @@ const PDFTemplatesPage = () => {
     });
 
     useEffect(() => {
-        loadTemplates();
+        // Trae las plantillas guardadas en tu cuenta (y sube las que solo
+        // existían en este navegador la primera vez)
+        (async () => {
+            await PDFTemplateService.syncFromCloud();
+            loadTemplates();
+        })();
     }, []);
 
     const loadTemplates = () => {
@@ -185,7 +190,7 @@ const PDFTemplatesPage = () => {
         }
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         const validation = PDFTemplateService.validateTemplate(formData);
         if (!validation.valid) {
             showToast(validation.errors[0], 'error');
@@ -193,26 +198,13 @@ const PDFTemplatesPage = () => {
         }
 
         try {
-            // First save the template to update its data
-            const saved = PDFTemplateService.saveTemplate({
+            // saveTemplate ya se encarga de la exclusividad de la activa
+            // y de guardar en tu cuenta de Supabase
+            await PDFTemplateService.saveTemplate({
                 ...formData,
                 id: editingTemplate?.id,
                 isActive: formData.isActive || false
             });
-
-            // If it was marked active in the form, ensure the service knows and updates everything
-            // Note: saveTemplate already handles some of this, but setActiveTemplate ensures exclusivity
-            if (formData.isActive) {
-                PDFTemplateService.setActiveTemplate(saved.id);
-            } else {
-                // If we explicitly deactivated it, check if it was the currently active one
-                const currentActive = PDFTemplateService.getActiveTemplate();
-                if (currentActive && currentActive.id === saved.id) {
-                    // We just saved it as inactive, but the service might need to clean up the 'active' key reference
-                    // Actually, PDFTemplateService.saveTemplate handles clearing the key if isActive is false
-                    // but let's be double sure by re-fetching.
-                }
-            }
 
             showToast(
                 editingTemplate ? 'Plantilla actualizada' : 'Plantilla creada',
@@ -221,56 +213,52 @@ const PDFTemplatesPage = () => {
             loadTemplates();
             handleCloseModal();
         } catch (error) {
-            showToast('Error al guardar la plantilla', 'error');
+            console.error('Error al guardar la plantilla:', error);
+            showToast(error.message || 'Error al guardar la plantilla', 'error');
+            loadTemplates();
         }
     };
 
-    const handleDelete = (templateId) => {
+    const handleDelete = async (templateId) => {
         if (window.confirm('¿Estás seguro de eliminar esta plantilla?')) {
             try {
-                PDFTemplateService.deleteTemplate(templateId);
+                await PDFTemplateService.deleteTemplate(templateId);
                 showToast('Plantilla eliminada', 'success');
-                loadTemplates();
             } catch (error) {
-                showToast('Error al eliminar la plantilla', 'error');
+                console.error('Error al eliminar la plantilla:', error);
+                showToast(error.message || 'Error al eliminar la plantilla', 'error');
             }
+            loadTemplates();
         }
     };
 
-    const handleSetActive = (templateId) => {
+    const handleSetActive = async (templateId) => {
         try {
-            PDFTemplateService.setActiveTemplate(templateId);
+            await PDFTemplateService.setActiveTemplate(templateId);
             showToast('Plantilla activada', 'success');
-            loadTemplates();
         } catch (error) {
-            showToast('Error al activar la plantilla', 'error');
+            console.error('Error al activar la plantilla:', error);
+            showToast(error.message || 'Error al activar la plantilla', 'error');
         }
+        loadTemplates();
     };
 
-    const handleDeactivate = () => {
+    const handleDeactivate = async () => {
         try {
-            // Limpiar completamente la referencia de plantilla activa
-            localStorage.removeItem('presugenius_active_pdf_template');
-
-            // Actualizar todas las plantillas para marcar isActive como false
-            const templates = PDFTemplateService.getTemplates();
-            templates.forEach(t => {
-                t.isActive = false;
-            });
-            localStorage.setItem('presugenius_pdf_templates', JSON.stringify(templates));
-
+            await PDFTemplateService.deactivateAll();
             showToast('Plantilla desactivada', 'success');
-            loadTemplates();
         } catch (error) {
             console.error('Error al desactivar la plantilla:', error);
-            showToast('Error al desactivar la plantilla', 'error');
+            showToast(error.message || 'Error al desactivar la plantilla', 'error');
         }
+        loadTemplates();
     };
 
     const handlePreviewTemplate = (template) => {
-        // Activar temporalmente esta plantilla para la vista previa
+        // Activar temporalmente SOLO en local: la vista previa no debe cambiar
+        // lo que tienes guardado en tu cuenta
         const originalActive = PDFTemplateService.getActiveTemplate();
-        PDFTemplateService.setActiveTemplate(template.id);
+        PDFTemplateService.setActiveTemplateLocal(template.id);
 
         // Guardar referencia para restaurar después
         setPreviewTemplate({ ...template, originalActive });
@@ -278,19 +266,11 @@ const PDFTemplatesPage = () => {
     };
 
     const handleClosePreview = () => {
-        // Restaurar plantilla activa original
+        // Restaurar la plantilla activa que había antes de la vista previa
         if (previewTemplate?.originalActive) {
-            // Había una plantilla activa, restaurarla
-            PDFTemplateService.setActiveTemplate(previewTemplate.originalActive.id);
+            PDFTemplateService.setActiveTemplateLocal(previewTemplate.originalActive.id);
         } else {
-            // No había plantilla activa original, limpiar completamente
-            localStorage.removeItem('presugenius_active_pdf_template');
-            // También actualizar el estado isActive en todas las plantillas
-            const templates = PDFTemplateService.getTemplates();
-            templates.forEach(t => {
-                t.isActive = false;
-            });
-            localStorage.setItem('presugenius_pdf_templates', JSON.stringify(templates));
+            PDFTemplateService.deactivateAllLocal();
         }
 
         setShowPDFPreview(false);
@@ -299,7 +279,7 @@ const PDFTemplatesPage = () => {
         loadTemplates();
     };
 
-    const handleGenerateDefaults = () => {
+    const handleGenerateDefaults = async () => {
         const defaults = [
             {
                 name: 'Corporativo Azul',
@@ -337,15 +317,16 @@ const PDFTemplatesPage = () => {
         ];
 
         try {
-            // Verificar si ya existen para no duplicar ciegamente (opcional, pero buena práctica)
-            // Aquí simplemente las agregamos
-            defaults.forEach(t => PDFTemplateService.saveTemplate(t));
+            // Una por una para que cada guardado en Supabase termine antes del siguiente
+            for (const plantilla of defaults) {
+                await PDFTemplateService.saveTemplate(plantilla);
+            }
             showToast('3 plantillas profesionales generadas', 'success');
-            loadTemplates();
         } catch (error) {
             console.error('Error generating defaults:', error);
-            showToast('Error al generar plantillas', 'error');
+            showToast(error.message || 'Error al generar plantillas', 'error');
         }
+        loadTemplates();
     };
 
     const getColorHex = (rgb) => {

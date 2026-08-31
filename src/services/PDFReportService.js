@@ -4,14 +4,144 @@ import autoTable from 'jspdf-autotable';
 export class PDFReportService {
     // Version: Fix autoTable import
     /**
-     * Genera un reporte fotográfico en PDF con formato profesional (solo fotos)
-     * Formato exacto del ejemplo: Header, grid 2x3 de fotos, descripciones, footer con firmas
+     * Distribución de fotos por hoja según el número de columnas elegido.
+     * Menos columnas = fotos más grandes; más columnas = más evidencia por hoja.
+     */
+    static PHOTO_GRID_PRESETS = {
+        2: { rows: 1 },  // 2 fotos por hoja (grandes)
+        3: { rows: 2 },  // 6 fotos por hoja (formato estándar)
+        4: { rows: 2 }   // 8 fotos por hoja (compacto)
+    };
+
+    /**
+     * Carga una imagen en un elemento <img> para poder medirla y redibujarla.
+     */
+    static loadImageElement(src) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('No se pudo decodificar la imagen'));
+            img.src = src;
+        });
+    }
+
+    /**
+     * Ajusta una foto al recuadro del PDF sin deformarla.
+     *
+     * - Foto con proporción parecida a la del recuadro: se recorta lo mínimo para
+     *   llenarlo por completo, sin franjas y sin estirar.
+     * - Foto muy vertical o panorámica: se muestra completa y centrada sobre fondo
+     *   blanco, en vez de aplastarla para que quepa.
+     * - Foto de baja resolución: nunca se amplía más allá de su tamaño real, así no
+     *   se ve pixeleada al imprimir (y de paso el PDF pesa menos).
+     *
+     * @param {string} imgData - Imagen en dataURL o blob URL
+     * @param {number} boxWidthMm - Ancho del recuadro en el PDF
+     * @param {number} boxHeightMm - Alto del recuadro en el PDF
+     * @param {Object} options - fit ('auto' | 'cover' | 'contain'), dpi, coverTolerance,
+     *                           background ('#ffffff' o 'transparent' para logos)
+     * @returns {Promise<{data: string, format: string}>} Imagen lista para addImage
+     */
+    static async fitImageToBox(imgData, boxWidthMm, boxHeightMm, options = {}) {
+        const {
+            fit = 'auto',
+            dpi = 150,
+            coverTolerance = 1.3, // hasta 30% de diferencia de proporción se recorta
+            maxSidePx = 2200,
+            background = '#ffffff'
+        } = options;
+        const keepTransparency = background === 'transparent';
+
+        // Sin DOM (pruebas / Node) no hay canvas: se usa la imagen tal cual
+        if (typeof document === 'undefined') return { data: imgData, format: keepTransparency ? 'PNG' : 'JPEG' };
+
+        try {
+            const img = await this.loadImageElement(imgData);
+            const srcW = img.naturalWidth || img.width;
+            const srcH = img.naturalHeight || img.height;
+            if (!srcW || !srcH) return { data: imgData, format: keepTransparency ? 'PNG' : 'JPEG' };
+
+            const boxAspect = boxWidthMm / boxHeightMm;
+            const srcAspect = srcW / srcH;
+
+            // Qué tan lejos está la foto de la proporción del recuadro
+            const aspectMismatch = Math.max(srcAspect / boxAspect, boxAspect / srcAspect);
+            const mode = fit === 'auto'
+                ? (aspectMismatch <= coverTolerance ? 'cover' : 'contain')
+                : fit;
+
+            // Tamaño del recuadro en píxeles a la resolución de impresión
+            let targetW = Math.round((boxWidthMm / 25.4) * dpi);
+            let targetH = Math.round((boxHeightMm / 25.4) * dpi);
+
+            // Nunca ampliar una foto chica: se reduce el lienzo para conservar nitidez
+            const neededScale = mode === 'cover'
+                ? Math.max(targetW / srcW, targetH / srcH)
+                : Math.min(targetW / srcW, targetH / srcH);
+            let canvasScale = neededScale > 1 ? 1 / neededScale : 1;
+
+            // Tope de memoria para fotos enormes
+            const largestSide = Math.max(targetW, targetH) * canvasScale;
+            if (largestSide > maxSidePx) canvasScale *= maxSidePx / largestSide;
+
+            targetW = Math.max(1, Math.round(targetW * canvasScale));
+            targetH = Math.max(1, Math.round(targetH * canvasScale));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = targetW;
+            canvas.height = targetH;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return { data: imgData, format: keepTransparency ? 'PNG' : 'JPEG' };
+
+            // Los logos se dejan transparentes para no tapar la banda del membrete
+            if (!keepTransparency) {
+                ctx.fillStyle = background;
+                ctx.fillRect(0, 0, targetW, targetH);
+            }
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+
+            if (mode === 'cover') {
+                // Llenar el recuadro recortando el sobrante por los lados
+                const scale = Math.max(targetW / srcW, targetH / srcH);
+                const cropW = targetW / scale;
+                const cropH = targetH / scale;
+                ctx.drawImage(
+                    img,
+                    (srcW - cropW) / 2, (srcH - cropH) / 2, cropW, cropH,
+                    0, 0, targetW, targetH
+                );
+            } else {
+                // Mostrar la foto completa, centrada, sin recortar nada
+                const scale = Math.min(targetW / srcW, targetH / srcH);
+                const drawW = srcW * scale;
+                const drawH = srcH * scale;
+                ctx.drawImage(img, (targetW - drawW) / 2, (targetH - drawH) / 2, drawW, drawH);
+            }
+
+            return keepTransparency
+                ? { data: canvas.toDataURL('image/png'), format: 'PNG' }
+                : { data: canvas.toDataURL('image/jpeg', 0.86), format: 'JPEG' };
+        } catch (error) {
+            // Imagen de otro origen sin CORS, formato raro, etc.: se usa la original
+            console.warn('No se pudo ajustar la foto al recuadro, se usa la original:', error);
+            return { data: imgData, format: keepTransparency ? 'PNG' : 'JPEG' };
+        }
+    }
+
+    /**
+     * Construye el documento del reporte fotográfico.
+     * Lo usan tanto la descarga como la vista previa, para que sean idénticos.
+     *
      * @param {Object} projectInfo - Información del proyecto
      * @param {Array} logs - Lista de logs con fotos agrupados por concepto
      * @param {string} reportDate - Fecha del reporte
-     * @param {Object} options - Opciones adicionales (contractor, contractNumber, concepts, supervisorName, supervisorRole)
+     * @param {Object} options - contractor, contractNumber, concepts, obra, ubicacion,
+     *                           firmas, logoUrl, headerColor, gridCols, photoFit
+     * @returns {Promise<jsPDF>} Documento listo para guardar o exportar
      */
-    static async generatePhotographicReport(projectInfo, logs, reportDate, options = {}) {
+    static async buildPhotographicReportDoc(projectInfo, logs, reportDate, options = {}) {
         const doc = new jsPDF('landscape', 'mm', 'a4');
         const pageWidth = doc.internal.pageSize.width; // 297mm (horizontal)
         const pageHeight = doc.internal.pageSize.height; // 210mm (horizontal)
@@ -22,6 +152,7 @@ export class PDFReportService {
         const supervisorName = options.supervisorName || projectInfo.supervisorName || 'Ing. Responsable';
         const supervisorRole = options.supervisorRole || projectInfo.supervisorRole || 'DIRECTOR DE OBRAS PÚBLICAS';
         const concepts = options.concepts || this.extractConceptsFromLogs(logs);
+        const obra = options.obra || projectInfo.project || projectInfo.name || 'Proyecto';
         const ubicacion = options.ubicacion || projectInfo.ubicacion || projectInfo.location || '';
         const fechaFormateada = reportDate ? (() => {
             try {
@@ -39,6 +170,10 @@ export class PDFReportService {
         // Color más intenso para que se note claramente en pantalla y en impresión
         const headerColor = options.headerColor || [199, 210, 254]; // Indigo muy claro por defecto
         const logoUrl = options.logoUrl || projectInfo.logoUrl || null;
+
+        // Diseño de la cuadrícula de fotos (configurable desde el editor del reporte)
+        const gridCols = Math.min(4, Math.max(2, parseInt(options.gridCols ?? projectInfo.photoGridCols, 10) || 3));
+        const photoFit = options.photoFit || projectInfo.photoFit || 'auto';
 
         // --- Helper Functions ---
         const addHeader = async () => {
@@ -58,12 +193,17 @@ export class PDFReportService {
             if (logoUrl) {
                 try {
                     const logoData = await this.fetchImage(logoUrl);
-                    const logoHeight = headerHeight - 4;
-                    const logoWidth = logoHeight * 1.5;
+                    const logoBoxHeight = headerHeight - 4;
+                    const logoBoxWidth = logoBoxHeight * 1.5;
                     const logoX = margin + 3;
                     const logoY = headerTop + 2;
-                    doc.addImage(logoData, 'PNG', logoX, logoY, logoWidth, logoHeight);
-                    textX = logoX + logoWidth + 4;
+                    // El logo también se ajusta solo: se muestra completo, nunca estirado
+                    const fittedLogo = await this.fitImageToBox(logoData, logoBoxWidth, logoBoxHeight, {
+                        fit: 'contain',
+                        background: 'transparent'
+                    });
+                    doc.addImage(fittedLogo.data, fittedLogo.format, logoX, logoY, logoBoxWidth, logoBoxHeight);
+                    textX = logoX + logoBoxWidth + 4;
                 } catch (e) {
                     console.error('Error cargando logo para encabezado PDF:', e);
                 }
@@ -97,7 +237,6 @@ export class PDFReportService {
 
             // Preparar datos para la tabla
             // Solo mostrar el nombre de la obra; la ubicación va en su propia celda
-            const obraText = projectInfo.project || projectInfo.name || 'Proyecto';
             const conceptsText = Array.isArray(concepts) ? concepts.join(', ') : concepts;
 
             // Crear tabla real usando autoTable justo debajo del título
@@ -116,7 +255,7 @@ export class PDFReportService {
                 body: [
                     [
                         { content: 'CONTRATISTA:\n' + contractor, styles: { fontSize: 7.5, cellPadding: 2 } },
-                        { content: 'OBRA:\n' + obraText, styles: { fontSize: 7.5, cellPadding: 2 } },
+                        { content: 'OBRA:\n' + obra, styles: { fontSize: 7.5, cellPadding: 2 } },
                         { content: 'CONTRATO No.:\n' + contractNumber, styles: { fontSize: 7.5, cellPadding: 2 } }
                     ],
                     [
@@ -193,18 +332,30 @@ export class PDFReportService {
         const logsByConcept = this.groupLogsByConcept(logs);
 
         // --- Content Generation ---
-        const headerEndY = await addHeader(); // Obtener posición final del header
+        const contentTop = await addHeader() + 4;
 
-        // Configuración de fotos: 6 por hoja (2 filas x 3 columnas) en A4 horizontal
-        let yPos = headerEndY + 4;
-        // Fotos ligeramente más chicas para dejar más espacio en la página
-        const photoWidth = 78;   // mm
-        const photoHeight = 45;  // mm
+        // Geometría de la cuadrícula: las fotos ocupan todo el ancho útil de la hoja
         const gapX = 6;
-        const gapY = 56;        // espacio vertical por bloque (foto + caption)
-        const photosPerRow = 3;
-        const photosPerPage = 6;
+        const captionHeight = 9;   // espacio bajo cada foto para su descripción
+        const rowGap = 4;
+        const usableWidth = pageWidth - (margin * 2);
+        const photosPerRow = gridCols;
+        const photoWidth = (usableWidth - gapX * (photosPerRow - 1)) / photosPerRow;
+        const rowsPerPage = (this.PHOTO_GRID_PRESETS[gridCols] || { rows: 2 }).rows;
+        const contentBottom = pageHeight - 34; // por encima de las firmas
+        const availableHeight = contentBottom - contentTop;
+        // La foto crece hasta llenar la hoja, sin pasar de una caja apaisada razonable
+        const photoHeight = Math.max(
+            20,
+            Math.min(
+                photoWidth * 0.7,
+                (availableHeight - rowGap * (rowsPerPage - 1)) / rowsPerPage - captionHeight
+            )
+        );
+        const rowPitch = photoHeight + captionHeight + rowGap;
+        const photosPerPage = photosPerRow * rowsPerPage;
 
+        let yPos = contentTop;
 
         // Recolectar fotos: concepto general va arriba (CONCEPTOS); bajo cada foto solo descripción opcional si existe
         const allPhotos = [];
@@ -224,38 +375,35 @@ export class PDFReportService {
             }
         }
 
-        // Procesar fotos en grid 2x4 (formato horizontal)
         let photoIndex = 0;
         let pageStartIndex = 0;
 
         for (const photo of allPhotos) {
-            // Verificar si necesitamos nueva página (cada 8 fotos = 2 filas x 4 columnas)
+            // Nueva hoja cuando se llena la cuadrícula
             if (photoIndex > 0 && (photoIndex - pageStartIndex) >= photosPerPage) {
                 addFooter();
                 doc.addPage('landscape'); // Nueva página también en horizontal
-                const newHeaderEndY = addHeader(); // Obtener posición final del header en nueva página
-                yPos = newHeaderEndY + 3; // Inicio después del header con menos espacio
+                yPos = await addHeader() + 4;
                 pageStartIndex = photoIndex;
             }
 
-            // Calcular posición dentro de la página actual (grid 2x4)
+            // Posición dentro de la hoja actual
             const indexInPage = photoIndex - pageStartIndex;
-            const col = indexInPage % photosPerRow; // 0, 1, 2, 3
-            const row = Math.floor(indexInPage / photosPerRow); // 0 o 1
+            const col = indexInPage % photosPerRow;
+            const row = Math.floor(indexInPage / photosPerRow);
             const xPos = margin + (col * (photoWidth + gapX));
-            const currentYPos = yPos + (row * gapY);
+            const currentYPos = yPos + (row * rowPitch);
 
             try {
-                // Agregar imagen
-                console.log(`Cargando imagen ${photoIndex + 1}/${allPhotos.length}:`, photo.url);
                 const imgData = await this.fetchImage(photo.url);
 
                 if (!imgData) {
                     throw new Error('No se pudo obtener datos de la imagen');
                 }
 
-                // Agregar imagen al PDF
-                doc.addImage(imgData, 'JPEG', xPos, currentYPos, photoWidth, photoHeight);
+                // Ajuste automático: la foto llena el recuadro sin deformarse
+                const fitted = await this.fitImageToBox(imgData, photoWidth, photoHeight, { fit: photoFit });
+                doc.addImage(fitted.data, fitted.format, xPos, currentYPos, photoWidth, photoHeight);
 
                 // Borde alrededor de la imagen (más visible como en el ejemplo)
                 doc.setLineWidth(0.3);
@@ -268,10 +416,9 @@ export class PDFReportService {
                     doc.setFont('helvetica', 'normal');
                     const splitCaption = doc.splitTextToSize(photo.caption.toUpperCase(), photoWidth - 4);
                     const captionY = currentYPos + photoHeight + 4;
-                    doc.text(splitCaption.length ? splitCaption[0] : '', xPos + 2, captionY);
+                    // Hasta dos líneas: el resto se recorta para no invadir la siguiente fila
+                    doc.text(splitCaption.slice(0, 2), xPos + 2, captionY);
                 }
-
-                console.log(`✓ Imagen ${photoIndex + 1} agregada correctamente`);
 
             } catch (err) {
                 console.error(`Error adding image ${photoIndex + 1} to PDF:`, err);
@@ -291,285 +438,30 @@ export class PDFReportService {
 
         addFooter();
 
+        return doc;
+    }
+
+    /**
+     * Genera un reporte fotográfico en PDF y lo descarga.
+     * @param {Object} projectInfo - Información del proyecto
+     * @param {Array} logs - Lista de logs con fotos agrupados por concepto
+     * @param {string} reportDate - Fecha del reporte
+     * @param {Object} options - Ver buildPhotographicReportDoc
+     */
+    static async generatePhotographicReport(projectInfo, logs, reportDate, options = {}) {
+        const doc = await this.buildPhotographicReportDoc(projectInfo, logs, reportDate, options);
+
         // Guardar PDF (cada reporte es un PDF individual)
         const fileName = `REPORTE_FOTOGRAFICO_${projectInfo.project?.replace(/\s+/g, '_') || 'OBRA'}_${reportDate}.pdf`;
         doc.save(fileName);
     }
 
     /**
-     * Genera un reporte fotográfico en PDF y devuelve el blob (para preview)
-     * Misma funcionalidad que generatePhotographicReport pero devuelve blob en lugar de descargar
+     * Genera el mismo reporte fotográfico pero devuelve el blob (para la vista previa).
+     * Usa exactamente el mismo documento que la descarga.
      */
     static async generatePhotographicReportPreview(projectInfo, logs, reportDate, options = {}) {
-        const doc = new jsPDF('landscape', 'mm', 'a4');
-        const pageWidth = doc.internal.pageSize.width; // 297mm (horizontal)
-        const pageHeight = doc.internal.pageSize.height; // 210mm (horizontal)
-        const margin = 15;
-
-        const contractor = options.contractor || projectInfo.contractor || projectInfo.client || 'Contratista';
-        const contractNumber = options.contractNumber || projectInfo.contractNumber || 'S/N';
-        const supervisorName = options.supervisorName || projectInfo.supervisorName || 'Ing. Responsable';
-        const supervisorRole = options.supervisorRole || projectInfo.supervisorRole || 'DIRECTOR DE OBRAS PÚBLICAS';
-        const concepts = options.concepts || this.extractConceptsFromLogs(logs);
-        const obra = options.obra || projectInfo.project || projectInfo.name || 'Proyecto';
-        const ubicacion = options.ubicacion || projectInfo.ubicacion || projectInfo.location || '';
-        const fechaFormateada = reportDate ? (() => {
-            try {
-                const d = new Date(reportDate);
-                return isNaN(d.getTime()) ? reportDate : d.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            } catch (_) { return reportDate; }
-        })() : '';
-
-        // Valores editables de las firmas
-        const contractorTitle = options.contractorTitle || projectInfo.contractorTitle || 'EL CONTRATISTA';
-        const contractorName = options.contractorName || projectInfo.contractorName || contractor;
-        const contractorRole = options.contractorRole || projectInfo.contractorRole || 'ADMINISTRADOR ÚNICO';
-        const municipalityTitle = options.municipalityTitle || projectInfo.municipalityTitle || 'H. AYUNTAMIENTO';
-        // Opcionales: color de encabezado y logo
-        const headerColor = options.headerColor || [199, 210, 254]; // Indigo muy claro por defecto
-        const logoUrl = options.logoUrl || projectInfo.logoUrl || null;
-
-        // --- Helper Functions ---
-        const addHeader = async () => {
-            // Encabezado de constructora (membrete) + título pequeño del reporte (preview)
-            const headerTop = margin;
-            const headerHeight = 16;
-
-            // Banda de color para el encabezado de la constructora
-            doc.setLineWidth(0.8);
-            doc.setDrawColor(0);
-            doc.setFillColor(headerColor[0], headerColor[1], headerColor[2]);
-            doc.rect(margin, headerTop, pageWidth - (margin * 2), headerHeight, 'FD');
-
-            // Logo opcional a la izquierda del encabezado
-            let textX = margin + 4;
-            const textYBase = headerTop + 6;
-            if (logoUrl) {
-                try {
-                    const logoData = await this.fetchImage(logoUrl);
-                    const logoHeight = headerHeight - 4;
-                    const logoWidth = logoHeight * 1.5;
-                    const logoX = margin + 3;
-                    const logoY = headerTop + 2;
-                    doc.addImage(logoData, 'PNG', logoX, logoY, logoWidth, logoHeight);
-                    textX = logoX + logoWidth + 4;
-                } catch (e) {
-                    console.error('Error cargando logo para encabezado PDF (preview):', e);
-                }
-            }
-
-            // Datos de la constructora (nombre, RFC u otros)
-            const companyName = options.companyName || projectInfo.companyName || contractor;
-            const companyRfc = options.companyRfc || projectInfo.companyRfc || '';
-            const companyExtra = options.companyExtra || projectInfo.companyExtra || '';
-
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(11);
-            doc.text((companyName || '').toUpperCase(), textX, textYBase);
-
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(7);
-            let extraLineY = textYBase + 4;
-            if (companyRfc) {
-                doc.text(`RFC: ${companyRfc.toUpperCase()}`, textX, extraLineY);
-                extraLineY += 3.5;
-            }
-            if (companyExtra) {
-                doc.text(companyExtra.toUpperCase(), textX, extraLineY);
-            }
-
-            // Título del reporte, más pequeño, debajo del membrete
-            const titleY = headerTop + headerHeight + 5;
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(10);
-            doc.text("REPORTE FOTOGRAFICO DE OBRA", pageWidth / 2, titleY, { align: 'center' });
-
-            // Preparar datos para la tabla
-            // Solo mostrar el nombre de la obra; la ubicación va en su propia celda
-            const conceptsText = Array.isArray(concepts) ? concepts.join(', ') : concepts;
-
-            // Crear tabla real usando autoTable
-            const tableStartY = titleY + 4;
-
-            // Verificar que autoTable esté disponible
-            if (typeof autoTable !== 'function') {
-                throw new Error('autoTable no está disponible. Verifica que jspdf-autotable esté correctamente instalado.');
-            }
-
-            autoTable(doc, {
-                startY: tableStartY,
-                margin: { left: margin, right: margin },
-                tableWidth: pageWidth - (margin * 2),
-                head: [],
-                body: [
-                    [
-                        { content: 'CONTRATISTA:\n' + contractor, styles: { fontSize: 8, cellPadding: 2 } },
-                        { content: 'OBRA:\n' + obra, styles: { fontSize: 8, cellPadding: 2 } },
-                        { content: 'CONTRATO No.:\n' + contractNumber, styles: { fontSize: 8, cellPadding: 2 } }
-                    ],
-                    [
-                        { content: 'UBICACIÓN:\n' + ubicacion, styles: { fontSize: 8, cellPadding: 2 } },
-                        { content: 'CONCEPTOS:\n' + conceptsText, styles: { fontSize: 8, cellPadding: 2 } },
-                        { content: 'FECHA:\n' + fechaFormateada, styles: { fontSize: 8, cellPadding: 2 } }
-                    ]
-                ],
-                columnStyles: {
-                    0: { cellWidth: 50, halign: 'left', valign: 'top' },
-                    1: { cellWidth: 'auto', halign: 'left', valign: 'top' },
-                    2: { cellWidth: 50, halign: 'left', valign: 'top' }
-                },
-                styles: {
-                    lineWidth: 0.3,
-                    lineColor: [0, 0, 0],
-                    fontSize: 7,
-                    cellPadding: 2
-                },
-                theme: 'grid',
-                headStyles: {
-                    fillColor: false,
-                    textColor: [0, 0, 0]
-                },
-                bodyStyles: {
-                    fillColor: false,
-                    textColor: [0, 0, 0]
-                }
-            });
-
-            // Retornar la posición Y final del header
-            return doc.lastAutoTable.finalY + 3;
-        };
-
-        const addFooter = () => {
-            const footerY = pageHeight - 30; // Subido un poco para que no queden tan a la orilla
-
-            // Signatures Section (formato exacto del ejemplo)
-            doc.setLineWidth(0.5);
-            doc.setDrawColor(0);
-
-            // Left Signature - El Contratista (usando valores editables)
-            const leftSigX = margin + 42.5;
-            doc.line(leftSigX - 25, footerY, leftSigX + 25, footerY);
-            doc.setFontSize(8);
-            doc.setFont('helvetica', 'bold');
-            doc.text(contractorTitle, leftSigX, footerY + 5, { align: 'center' });
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(7);
-            doc.text(contractorName, leftSigX, footerY + 10, { align: 'center' });
-            doc.setFontSize(6);
-            doc.text(contractorRole, leftSigX, footerY + 15, { align: 'center' });
-
-            // Right Signature - H. Ayuntamiento (usando valores editables)
-            const rightSigX = pageWidth - margin - 42.5;
-            doc.line(rightSigX - 25, footerY, rightSigX + 25, footerY);
-            doc.setFontSize(8);
-            doc.setFont('helvetica', 'bold');
-            doc.text(municipalityTitle, rightSigX, footerY + 5, { align: 'center' });
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(7);
-            doc.text(supervisorName, rightSigX, footerY + 10, { align: 'center' });
-            doc.setFontSize(6);
-            doc.text(supervisorRole, rightSigX, footerY + 15, { align: 'center' });
-        };
-
-        // Agrupar logs por concepto/tarea
-        const logsByConcept = this.groupLogsByConcept(logs);
-
-        // --- Content Generation ---
-        const headerEndY = await addHeader(); // Obtener posición final del header
-
-        // Configuración de fotos: 6 por hoja (2 filas x 3 columnas) en A4 horizontal
-        let yPos = headerEndY + 4;
-        // Fotos ligeramente más chicas para dejar más espacio en la página (preview)
-        const photoWidth = 78;
-        const photoHeight = 45;
-        const gapX = 6;
-        const gapY = 56;
-        const photosPerRow = 3;
-        const photosPerPage = 6;
-
-
-        // Recolectar fotos: bajo cada foto solo descripción opcional (concepto general no se repite)
-        const allPhotos = [];
-        for (const [conceptName, conceptLogs] of Object.entries(logsByConcept)) {
-            for (const log of conceptLogs) {
-                if (!log.photos || log.photos.length === 0) continue;
-                const { photoCaptions: savedCaptions } = this.parsePhotoReportContent(log.content || '');
-                const photos = log.photos || [];
-                for (let i = 0; i < photos.length; i++) {
-                    const optionalCaption = (savedCaptions[i] || '').trim();
-                    allPhotos.push({
-                        url: photos[i],
-                        caption: optionalCaption,
-                        concept: conceptName
-                    });
-                }
-            }
-        }
-
-        // Procesar fotos en grid 2x4 (formato horizontal)
-        let photoIndex = 0;
-        let pageStartIndex = 0;
-
-        for (const photo of allPhotos) {
-            // Verificar si necesitamos nueva página (cada 8 fotos = 2 filas x 4 columnas)
-            if (photoIndex > 0 && (photoIndex - pageStartIndex) >= photosPerPage) {
-                addFooter();
-                doc.addPage('landscape'); // Nueva página también en horizontal
-                const newHeaderEndY = await addHeader(); // Obtener posición final del header en nueva página
-                yPos = newHeaderEndY + 3; // Inicio después del header con menos espacio
-                pageStartIndex = photoIndex;
-            }
-
-            // Calcular posición dentro de la página actual (grid 2x4)
-            const indexInPage = photoIndex - pageStartIndex;
-            const col = indexInPage % photosPerRow; // 0, 1, 2, 3
-            const row = Math.floor(indexInPage / photosPerRow); // 0 o 1
-            const xPos = margin + (col * (photoWidth + gapX));
-            const currentYPos = yPos + (row * gapY);
-
-            try {
-                // Agregar imagen
-                const imgData = await this.fetchImage(photo.url);
-
-                if (!imgData) {
-                    throw new Error('No se pudo obtener datos de la imagen');
-                }
-
-                // Agregar imagen al PDF
-                doc.addImage(imgData, 'JPEG', xPos, currentYPos, photoWidth, photoHeight);
-
-                // Borde alrededor de la imagen (más visible como en el ejemplo)
-                doc.setLineWidth(0.3);
-                doc.setDrawColor(0);
-                doc.rect(xPos, currentYPos, photoWidth, photoHeight);
-
-                // Solo mostrar descripción opcional bajo la foto si existe (no repetir concepto general)
-                if (photo.caption) {
-                    doc.setFontSize(6);
-                    doc.setFont('helvetica', 'normal');
-                    const splitCaption = doc.splitTextToSize(photo.caption.toUpperCase(), photoWidth - 4);
-                    const captionY = currentYPos + photoHeight + 4;
-                    doc.text(splitCaption.length ? splitCaption[0] : '', xPos + 2, captionY);
-                }
-
-            } catch (err) {
-                console.error(`Error adding image ${photoIndex + 1} to PDF:`, err);
-                // Placeholder si falla la carga
-                doc.setLineWidth(0.3);
-                doc.setDrawColor(200, 200, 200);
-                doc.rect(xPos, currentYPos, photoWidth, photoHeight);
-                doc.setFontSize(5);
-                doc.setTextColor(150, 150, 150);
-                doc.text("Error al cargar imagen", xPos + 2, currentYPos + photoHeight / 2);
-                doc.setTextColor(0, 0, 0);
-            }
-
-            photoIndex++;
-        }
-
-        addFooter();
-
-        // Devolver blob en lugar de descargar
+        const doc = await this.buildPhotographicReportDoc(projectInfo, logs, reportDate, options);
         return doc.output('blob');
     }
 

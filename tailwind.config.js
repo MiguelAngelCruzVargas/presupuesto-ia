@@ -6,7 +6,14 @@ export default {
         "./src/**/*.{js,ts,jsx,tsx}",
     ],
     theme: {
-        extend: {},
+        extend: {
+            screens: {
+                // Celulares en horizontal / pantallas muy angostas.
+                // Ya se usaba xs: en el código pero no estaba definido,
+                // así que esas clases no se generaban.
+                xs: '480px',
+            },
+        },
     },
     plugins: [],
 }

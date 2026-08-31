@@ -44,7 +44,9 @@ const Layout = ({ children, title }) => {
 
             <Sidebar mobileOpen={isMobileMenuOpen} setMobileOpen={setIsMobileMenuOpen} />
 
-            <main className="flex-1 overflow-y-auto scrollbar-hide p-2 sm:p-3 lg:p-2 print:ml-0 print:p-0 transition-all duration-300" style={{ marginLeft: `${sidebarWidth}` }}>
+            {/* pb-24: deja hueco para la burbuja flotante del chat, que si no
+                tapa lo último de la página (botones incluidos) */}
+            <main className="flex-1 overflow-y-auto scrollbar-hide p-2 sm:p-3 lg:p-2 pb-24 sm:pb-24 print:ml-0 print:p-0 print:pb-0 transition-all duration-300" style={{ marginLeft: `${sidebarWidth}` }}>
 
                 <div className="flex justify-between items-center mb-8 print:hidden">
                     <div className="flex items-center gap-3">

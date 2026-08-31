@@ -10,7 +10,8 @@ import {
     Clock,
     User,
     MapPin,
-    Trash2
+    Trash2,
+    ChevronRight
 } from 'lucide-react';
 import ConfirmModal from '../components/ui/ConfirmModal';
 
@@ -178,48 +179,50 @@ const ProjectReportsDashboard = () => {
 
 
             <div className="space-y-6 flex-1 flex flex-col">
+                {/* Tarjetas explicativas: son clicables completas, sin botón propio.
+                    Antes cada una repetía el mismo botón que ya está en el encabezado. */}
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm p-5">
+                    <button
+                        type="button"
+                        onClick={() => navigate('/reports/photographic/free')}
+                        className="text-left w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm p-5 transition hover:border-emerald-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 touch-manipulation"
+                    >
                         <div className="flex items-start gap-4">
                             <div className="p-3 rounded-2xl bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                                 <Camera size={24} />
                             </div>
-                            <div className="flex-1">
-                                <h2 className="text-lg font-bold text-slate-900 dark:text-white">Reporte fotográfico libre</h2>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Reporte fotográfico libre</h2>
+                                    <ChevronRight size={18} className="shrink-0 text-slate-400" />
+                                </div>
                                 <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
                                     Usa el mismo editor del reporte ligado a proyecto. Si la obra no existe todavía, el sistema crea un proyecto ligero al guardar para no duplicar formularios.
                                 </p>
-                                <button
-                                    onClick={() => navigate('/reports/photographic/free')}
-                                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition shadow-lg shadow-emerald-200 dark:shadow-none"
-                                >
-                                    <Camera size={18} />
-                                    Abrir constructor libre
-                                </button>
                             </div>
                         </div>
-                    </div>
+                    </button>
 
-                    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm p-5">
+                    <button
+                        type="button"
+                        onClick={() => setShowNewProjectModal(true)}
+                        className="text-left w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm p-5 transition hover:border-blue-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 touch-manipulation"
+                    >
                         <div className="flex items-start gap-4">
                             <div className="p-3 rounded-2xl bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
                                 <Folder size={24} />
                             </div>
-                            <div className="flex-1">
-                                <h2 className="text-lg font-bold text-slate-900 dark:text-white">Reportes ligados a proyecto</h2>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Reportes ligados a proyecto</h2>
+                                    <ChevronRight size={18} className="shrink-0 text-slate-400" />
+                                </div>
                                 <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
                                     Mantén este flujo para obras que sí nacen dentro del sistema y necesitan bitácora, cronograma y expediente completo.
                                 </p>
-                                <button
-                                    onClick={() => setShowNewProjectModal(true)}
-                                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-lg shadow-blue-200 dark:shadow-none"
-                                >
-                                    <Plus size={18} />
-                                    Crear proyecto de reportes
-                                </button>
                             </div>
                         </div>
-                    </div>
+                    </button>
                 </div>
 
                 {/* Toolbar */}

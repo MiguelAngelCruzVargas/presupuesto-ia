@@ -6,134 +6,30 @@ import { BudgetDocumentService } from './BudgetDocumentService';
 import { APP_CONFIG } from '../config/appConfig';
 
 export class PDFService {
-    static exportBudget(projectInfo, items, total, subtotal, taxAmount) {
+    /**
+     * Exporta y descarga el presupuesto en PDF.
+     * Delega en generateBudgetPDF para que use SIEMPRE la plantilla activa
+     * de "Configurar PDF" (antes tenía su propio maquetado con colores fijos,
+     * así que los presupuestos descargados desde un enlace compartido salían
+     * sin la marca del usuario).
+     */
+    static async exportBudget(projectInfo, items, total, subtotal, taxAmount, options = {}) {
         const doc = new jsPDF();
-        const primaryColor = [26, 35, 126]; // Dark Blue
-        const secondaryColor = [69, 90, 100]; // Blue Grey
 
-        // --- HEADER ---
-        doc.setFillColor(...primaryColor);
-        doc.rect(0, 0, 210, 35, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(18);
-        doc.setFont('helvetica', 'bold');
-        doc.text('PRESUPUESTO DE OBRA', 105, 18, { align: 'center' });
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'normal');
-        doc.text('DOCUMENTO TÉCNICO', 105, 25, { align: 'center' });
-
-        // --- PROJECT INFO ---
-        const startY = 45;
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(9);
-
-        doc.setFont('helvetica', 'bold');
-        doc.text('PROYECTO:', 14, startY);
-        doc.setFont('helvetica', 'normal');
-        doc.text(projectInfo.project || '---', 40, startY);
-
-        doc.setFont('helvetica', 'bold');
-        doc.text('CLIENTE:', 14, startY + 6);
-        doc.setFont('helvetica', 'normal');
-        doc.text(projectInfo.client || '---', 40, startY + 6);
-
-        const currentDate = new Date();
-        const options = { day: 'numeric', month: 'long', year: 'numeric' };
-        const formattedDate = currentDate.toLocaleDateString(APP_CONFIG.locale, options);
-        const locationText = projectInfo.location || APP_CONFIG.defaultCountry;
-        const fullLocationAndDateText = `${locationText} a ${formattedDate}`;
-
-        doc.setFont('helvetica', 'normal');
-        doc.text(fullLocationAndDateText, 140, startY, { maxWidth: 60 });
-
-        // --- TABLE ---
-        const groupedItems = items.reduce((acc, item) => {
-            const cat = item.category || 'Sin Categoría';
-            if (!acc[cat]) acc[cat] = [];
-            acc[cat].push(item);
-            return acc;
-        }, {});
-
-        const tableBody = [];
-        let globalIndex = 1;
-
-        Object.keys(groupedItems).forEach(category => {
-            tableBody.push([{
-                content: category.toUpperCase(),
-                colSpan: 7,
-                styles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'left' }
-            }]);
-
-            groupedItems[category].forEach(item => {
-                tableBody.push([
-                    globalIndex++,
-                    `C-${globalIndex.toString().padStart(3, '0')}`,
-                    item.description,
-                    item.unit,
-                    item.quantity,
-                    formatCurrency(item.unitPrice),
-                    formatCurrency(item.quantity * item.unitPrice)
-                ]);
-            });
+        await this.generateBudgetPDF(doc, {
+            projectInfo,
+            items,
+            subtotal,
+            indirectCosts: options.indirectCosts ?? 0,
+            profit: options.profit ?? 0,
+            tax: taxAmount,
+            total,
+            technicalDescription: options.technicalDescription || '',
+            budgetDocumentMeta: options.budgetDocumentMeta || null
         });
 
-        autoTable(doc, {
-            head: [['#', 'CLAVE', 'CONCEPTO', 'UND', 'CANT', 'P.U.', 'IMPORTE']],
-            body: tableBody,
-            startY: 60,
-            theme: 'grid',
-            headStyles: { fillColor: primaryColor, textColor: 255, fontStyle: 'bold', halign: 'center', fontSize: 8 },
-            columnStyles: {
-                0: { halign: 'center', cellWidth: 8 },
-                1: { halign: 'center', cellWidth: 15 },
-                2: { halign: 'left' },
-                3: { halign: 'center', cellWidth: 12 },
-                4: { halign: 'right', cellWidth: 15 },
-                5: { halign: 'right', cellWidth: 22 },
-                6: { halign: 'right', cellWidth: 25, fontStyle: 'bold' }
-            },
-            styles: { fontSize: 8, cellPadding: 2, valign: 'middle' }
-        });
-
-        // --- TOTALS ---
-        const finalY = doc.lastAutoTable.finalY + 10;
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`IMPORTE CON LETRA: (${numberToWords(total)})`, 14, finalY);
-
-        const totalsX = 140;
-        doc.setFontSize(9);
-        doc.setTextColor(...secondaryColor);
-        doc.text('SUBTOTAL:', totalsX, finalY + 10);
-        doc.setTextColor(0, 0, 0);
-        doc.text(formatCurrency(subtotal), 195, finalY + 10, { align: 'right' });
-
-        doc.setTextColor(...secondaryColor);
-        doc.text(`IVA (${projectInfo.taxRate}%):`, totalsX, finalY + 16);
-        doc.setTextColor(0, 0, 0);
-        doc.text(formatCurrency(taxAmount), 195, finalY + 16, { align: 'right' });
-
-        doc.setDrawColor(0, 0, 0);
-        doc.line(totalsX, finalY + 20, 195, finalY + 20);
-
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.text('TOTAL:', totalsX, finalY + 26);
-        doc.text(formatCurrency(total), 195, finalY + 26, { align: 'right' });
-
-        // --- SIGNATURES ---
-        const pageHeight = doc.internal.pageSize.height;
-        const signatureY = pageHeight - 40;
-        doc.setDrawColor(150);
-        doc.line(40, signatureY, 90, signatureY);
-        doc.line(120, signatureY, 170, signatureY);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(100);
-        doc.text('ELABORÓ', 65, signatureY + 5, { align: 'center' });
-        doc.text('AUTORIZÓ', 145, signatureY + 5, { align: 'center' });
-
-        doc.save(`Presupuesto_${projectInfo.project.replace(/\s+/g, '_')}.pdf`);
+        const nombreProyecto = (projectInfo?.project || 'Presupuesto').replace(/\s+/g, '_');
+        doc.save(`Presupuesto_${nombreProyecto}.pdf`);
     }
 
     static async generateBudgetPDF(doc, {
