@@ -322,7 +322,12 @@ const AI_API_KEY_FALLBACK = process.env.AI_API_KEY || process.env.GEMINI_API_KEY
 // Usar el modelo más reciente disponible (gemini-flash-latest es un alias estable)
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = "llama-3.3-70b-versatile"; // Modelo de Groq actualizado a Llama 3.3 70B
+// Groq retiro los modelos Llama: llama-3.3-70b-versatile ya no existe y la
+// API responde 404, lo que dejaba caida la generacion de presupuestos.
+// gpt-oss-120b es el modelo de proposito general mas capaz disponible hoy en
+// la cuenta y respeta bien el modo JSON.
+// Para ver que hay disponible: GET https://api.groq.com/openai/v1/models
+const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
 const DEEPSEEK_MODEL = "deepseek-v4-flash";
 
@@ -504,6 +509,25 @@ function normalizeProviderErrorMessage(provider, rawMessage, status) {
     return message;
 }
 
+/**
+ * Errores por los que NO sirve reintentar con la misma key, pero SÍ con otro
+ * proveedor: se acabó el saldo o el plan.
+ *
+ * DeepSeek responde 402 "Insufficient Balance". Antes ese caso no entraba en
+ * ninguna condición de failover, así que la petición moría ahí aunque hubiera
+ * keys de Groq sanas: el presupuesto simplemente no se generaba.
+ */
+function isBillingError(status, lowerMessage) {
+    return (
+        status === 402 ||
+        lowerMessage.includes('insufficient balance') ||
+        lowerMessage.includes('insufficient_quota') ||
+        lowerMessage.includes('billing') ||
+        lowerMessage.includes('payment required') ||
+        lowerMessage.includes('credit')
+    );
+}
+
 function isAuthError(status, lowerMessage) {
     return (
         status === 401 ||
@@ -603,11 +627,16 @@ app.post('/api/ai', rateLimiter, async (req, res) => {
 
                 if (attempts < maxAttempts - 1 && (
                     isAuthError(response.status, lowerError) ||
+                    isBillingError(response.status, lowerError) ||
                     lowerError.includes('quota') ||
                     lowerError.includes('limit exceeded') ||
                     response.status === 429
                 )) {
-                    const blockReason = isAuthError(response.status, lowerError) ? 'auth_error' : 'quota_or_rate_limit';
+                    const blockReason = isAuthError(response.status, lowerError)
+                        ? 'auth_error'
+                        : isBillingError(response.status, lowerError)
+                            ? 'sin_saldo'
+                            : 'quota_or_rate_limit';
                     console.warn(`⚠️ Key ${apiKeyManager.maskKey(currentApiKey)} de ${providerUsed} falló (${blockReason}), intentando con otra...`);
                     apiKeyManager.recordError(currentApiKey);
                     apiKeyManager.blockKey(currentApiKey, blockReason);

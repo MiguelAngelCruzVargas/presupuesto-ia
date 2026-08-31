@@ -151,6 +151,15 @@ const Dashboard = () => {
             setItems([...items, ...validItems]);
             setAiPrompt('');
             showToast(`Se generaron ${validItems.length} partidas`, 'success');
+
+            // Partidas que la IA devolvio con unidades o cantidades dudosas.
+            // Se avisa en vez de dejarlas pasar como si estuvieran bien.
+            const avisos = AIBudgetService.ultimosAvisos || [];
+            if (avisos.length > 0) {
+                const detalle = avisos.slice(0, 3).map(a => a.partida).join(', ');
+                const resto = avisos.length > 3 ? ` y ${avisos.length - 3} mas` : '';
+                showToast(`Revisa ${avisos.length} partida(s): ${detalle}${resto}`, 'warning');
+            }
         } catch (error) {
             const errorMessage = ErrorService.getErrorMessage(error);
             ErrorService.logError(error, 'Dashboard.generateBudgetFromAI');

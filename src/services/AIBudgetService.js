@@ -10,11 +10,18 @@ import { MarketPriceService } from './MarketPriceService';
 import { APUService } from './APUService';
 import { ScheduleDurationService } from './ScheduleDurationService';
 import { CriticalPathService } from './CriticalPathService';
+import { BudgetNormalizerService } from './BudgetNormalizerService';
 import { getCurrentYear, getCurrentYearRange } from '../utils/helpers';
 import { generateId } from '../utils/helpers';
 import { APP_CONFIG } from '../config/appConfig';
 
 export class AIBudgetService {
+    /**
+     * Avisos de la ultima generacion: unidades o categorias que la IA devolvio
+     * mal y que hubo que corregir o marcar. La interfaz los muestra al usuario.
+     */
+    static ultimosAvisos = [];
+
     static DESCRIPTION_SUGGESTION_FALLBACKS = [
         'Suministro y colocación de concepto de obra, incluye materiales, mano de obra, herramienta y equipo.',
         'Ejecución de concepto de obra conforme a proyecto, incluye materiales, mano de obra, herramienta y equipo.',
@@ -482,15 +489,27 @@ INSTRUCCIONES CLAVE:
                 priceWarnings.forEach(warning => console.warn(`   - ${warning}`));
             }
 
-            // Validar coherencia de categorías
-            const validCategories = ['Materiales', 'Mano de Obra', 'Equipos', 'Instalaciones', 'Obra Civil'];
-            const invalidCategories = itemsWithIds.filter(item => !validCategories.includes(item.category));
-            if (invalidCategories.length > 0) {
-                console.warn(`⚠️ ${invalidCategories.length} partida(s) con categorías no estándar. Ajustando...`);
-                invalidCategories.forEach(item => {
-                    item.category = 'Materiales'; // Categoría por defecto
-                });
+            // Normalizar unidades y categorías contra el catálogo del editor.
+            //
+            // Antes aquí se forzaba a 'Materiales' cualquier categoría que no
+            // coincidiera EXACTAMENTE, así que un "Mano de obra" con la o
+            // minúscula terminaba contabilizado como material. Y las unidades
+            // no se revisaban: la IA devuelve "bag" o "cu m" y entraban tal cual.
+            const normalizacion = BudgetNormalizerService.normalizarPartidas(itemsWithIds);
+            itemsWithIds = normalizacion.items;
+
+            if (normalizacion.correcciones > 0) {
+                console.warn(`⚠️ ${normalizacion.correcciones} campo(s) corregidos contra el catálogo (unidades y categorías).`);
             }
+            if (normalizacion.avisos.length > 0) {
+                console.warn('⚠️ Revisa estas partidas:');
+                normalizacion.avisos.forEach(a => console.warn(`   - ${a.partida}: ${a.mensaje}`));
+            }
+
+            // Se guardan para que la interfaz pueda avisar al usuario. El metodo
+            // devuelve un array y los llamadores lo esparcen con [...], asi que
+            // colgar los avisos del array se perderia.
+            this.ultimosAvisos = normalizacion.avisos;
 
             const totalGenerated = itemsWithIds.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
             console.log(`   - Presupuesto total generado: $${totalGenerated.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);

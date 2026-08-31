@@ -458,7 +458,7 @@ const AdminDashboard = () => {
 
                         {/* GROQ (LLAMA) SECTION */}
                         <div className="p-6 bg-slate-50/50 dark:bg-slate-900/20 rounded-2xl border border-slate-200 dark:border-slate-700/50 space-y-6">
-                            <SectionTitle title="Groq (Llama) API Keys" description="Llaves para el modelo llama-3.3-70b-versatile" />
+                            <SectionTitle title="Groq (Llama) API Keys" description="Llaves para Groq (modelo configurable con GROQ_MODEL)" />
                             
                             <DynamicList
                                 title="Keys Gratuitas (Pool Free)"

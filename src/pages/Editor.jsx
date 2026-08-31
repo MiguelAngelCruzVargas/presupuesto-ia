@@ -643,7 +643,17 @@ const Editor = () => {
                 isOpen: true,
                 status: 'success',
                 title: 'Presupuesto generado',
-                message: `Se generaron ${generatedItems.length} partida${generatedItems.length !== 1 ? 's' : ''}. Ya puedes revisar y editar el detalle.`
+                message: (() => {
+                    const base = `Se generaron ${generatedItems.length} partida${generatedItems.length !== 1 ? 's' : ''}.`;
+                    // La IA a veces devuelve unidades que no pegan con el
+                    // concepto (muebles de bano en m2). Se avisa aqui en vez de
+                    // dejarlas pasar como si estuvieran revisadas.
+                    const avisos = AIBudgetService.ultimosAvisos || [];
+                    if (avisos.length === 0) return `${base} Ya puedes revisar y editar el detalle.`;
+                    const detalle = avisos.slice(0, 3).map(a => `"${a.partida}"`).join(', ');
+                    const resto = avisos.length > 3 ? ` y ${avisos.length - 3} mas` : '';
+                    return `${base} Revisa la unidad y la cantidad de ${detalle}${resto}: la IA las devolvio dudosas.`;
+                })()
             });
 
             if (aiStatusTimeoutRef.current) {

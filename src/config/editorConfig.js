@@ -27,6 +27,10 @@ export const BUDGET_UNIT_OPTIONS = [
     { value: 'kg', label: 'kg' },
     { value: 'ton', label: 'Ton' },
     { value: 'lt', label: 'Lt' },
+    // Faltaban aunque la base de precios ya las usa: el cemento se vende por
+    // bulto y la mano de obra se contrata por jornal.
+    { value: 'bulto', label: 'Bulto' },
+    { value: 'jornal', label: 'Jornal' },
     { value: 'jgo', label: 'Jgo' },
     { value: 'servicio', label: 'Servicio' },
     { value: 'global', label: 'Global' }
