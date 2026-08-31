@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
     History as HistoryIcon,
     Trash2,
+    Copy,
     Search,
     Filter,
     X,
@@ -16,13 +17,15 @@ import {
     Clock3
 } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
+import { TemplateService } from '../services/TemplateService';
 import { formatCurrency } from '../utils/format';
 import Card from '../components/ui/Card';
 import { APP_CONFIG } from '../config/appConfig';
 
 const History = () => {
-    const { loadBudget, deleteBudget: contextDeleteBudget } = useProject();
+    const { loadBudget, deleteBudget: contextDeleteBudget, showToast } = useProject();
     const [projects, setProjects] = useState([]);
+    const [duplicandoId, setDuplicandoId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState('date'); // 'date', 'name', 'total', 'items'
@@ -47,6 +50,29 @@ const History = () => {
             console.error('Error loading history:', error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    // Duplicar: crea una copia independiente que se puede editar entera sin
+    // tocar el original. Util para arrancar de un presupuesto que ya hiciste.
+    const handleDuplicar = async (proyecto) => {
+        const sugerido = `${proyecto.project || 'Presupuesto'} (copia)`;
+        const nombre = window.prompt('Nombre del nuevo presupuesto:', sugerido);
+        if (nombre === null) return;
+
+        setDuplicandoId(proyecto.id);
+        try {
+            const { itemsCount } = await TemplateService.duplicarProyecto(
+                proyecto.id,
+                nombre.trim() || sugerido
+            );
+            showToast(`Copia creada con ${itemsCount} partida${itemsCount === 1 ? '' : 's'}`, 'success');
+            loadProjects();
+        } catch (error) {
+            console.error('Error duplicando:', error);
+            showToast(error.message || 'No se pudo duplicar el presupuesto', 'error');
+        } finally {
+            setDuplicandoId(null);
         }
     };
 
@@ -479,6 +505,15 @@ const History = () => {
                                         >
                                             Abrir proyecto
                                             <ArrowUpRight size={16} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDuplicar(b)}
+                                            disabled={duplicandoId === b.id}
+                                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
+                                            title="Crear una copia editable de este presupuesto"
+                                        >
+                                            <Copy size={16} />
+                                            {duplicandoId === b.id ? 'Duplicando...' : 'Duplicar'}
                                         </button>
                                         <button
                                             onClick={() => handleDelete(b.id, b.project)}

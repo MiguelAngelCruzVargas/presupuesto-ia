@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { generateId } from '../utils/helpers';
 
 export class TemplateService {
     /**
@@ -127,14 +128,18 @@ export class TemplateService {
     }
 
     /**
-     * Create template from existing project
-     * @param {string} projectId - Source project ID
-     * @param {Object} metadata - Template metadata
-     * @returns {Promise<Object>} - Created template
+     * Guarda un presupuesto existente como plantilla reutilizable.
+     *
+     * Lee las partidas de projects.data, que es donde la app las guarda de
+     * verdad. Antes las leía de la tabla budget_items, que está vacía: por eso
+     * TODA plantilla guardada salía sin partidas, sin dar ningún error.
+     *
+     * @param {string} projectId - Proyecto del que se copia
+     * @param {Object} metadata - { name, description, categoryId, isPublic }
+     * @returns {Promise<Object>} La plantilla creada
      */
     static async createTemplate(projectId, metadata) {
         try {
-            // Get project data
             const { data: project, error: projectError } = await supabase
                 .from('projects')
                 .select('*')
@@ -143,45 +148,57 @@ export class TemplateService {
 
             if (projectError) throw projectError;
 
-            // Get project items
-            const { data: items, error: itemsError } = await supabase
-                .from('budget_items')
-                .select('*')
-                .eq('project_id', projectId);
+            const contenido = project.data || {};
+            const projectInfo = contenido.projectInfo || {};
+            const items = Array.isArray(contenido.items) ? contenido.items : [];
 
-            if (itemsError) throw itemsError;
+            if (items.length === 0) {
+                throw new Error('Este presupuesto no tiene partidas que guardar como plantilla.');
+            }
 
-            // Create template
+            // Se guarda la forma que usa la app (unitPrice). Se acepta price por
+            // si el proyecto viene de una versión anterior.
+            const partidas = items.map(item => ({
+                code: item.code || '',
+                description: item.description,
+                unit: item.unit,
+                quantity: Number(item.quantity) || 0,
+                unitPrice: Number(item.unitPrice ?? item.price) || 0,
+                category: item.category,
+                notes: item.notes || '',
+                // El APU es lo más caro de rehacer: si el proyecto lo tiene,
+                // viaja con la plantilla.
+                apuData: item.apuData || null,
+                calculation_basis: item.calculation_basis || ''
+            }));
+
+            const totalEstimado = partidas.reduce(
+                (suma, item) => suma + item.quantity * item.unitPrice,
+                0
+            );
+
             const templateData = {
                 name: metadata.name || project.name,
                 description: metadata.description || '',
-                category_id: metadata.categoryId,
+                category_id: metadata.categoryId || null,
                 is_public: metadata.isPublic || false,
                 user_id: project.user_id,
                 template_data: {
                     projectInfo: {
-                        type: project.type,
-                        location: project.location,
-                        taxRate: project.tax_rate,
-                        indirect_percentage: project.indirect_percentage,
-                        profit_percentage: project.profit_percentage
+                        type: projectInfo.type || project.type,
+                        location: projectInfo.location || project.location,
+                        taxRate: projectInfo.taxRate ?? project.tax_rate,
+                        indirect_percentage: projectInfo.indirect_percentage ?? project.indirect_percentage ?? 0,
+                        profit_percentage: projectInfo.profit_percentage ?? project.profit_percentage ?? 0
                     },
-                    items: items.map(item => ({
-                        code: item.code,
-                        description: item.description,
-                        unit: item.unit,
-                        quantity: item.quantity,
-                        price: item.price,
-                        category: item.category,
-                        notes: item.notes
-                    })),
+                    items: partidas,
                     metadata: {
-                        totalItems: items.length,
-                        estimatedTotal: items.reduce((sum, item) => sum + (item.quantity * item.price), 0),
-                        categories: [...new Set(items.map(item => item.category))]
+                        totalItems: partidas.length,
+                        estimatedTotal: totalEstimado,
+                        categories: [...new Set(partidas.map(item => item.category))],
+                        conAPU: partidas.filter(item => item.apuData).length
                     }
                 }
-                // Nota: tags se almacenaría dentro de template_data si se necesitara en el futuro
             };
 
             const { data: template, error: templateError } = await supabase
@@ -199,15 +216,19 @@ export class TemplateService {
     }
 
     /**
-     * Create new project from template
-     * @param {string} templateId - Template ID
-     * @param {Object} customization - Custom values
-     * @param {string} userId - User ID
-     * @returns {Promise<Object>} - Created project
+     * Crea un proyecto nuevo a partir de una plantilla: una copia completa,
+     * editable de principio a fin, sin tocar la plantilla original.
+     *
+     * Escribe en projects.data, que es de donde la app lee. Antes insertaba en
+     * budget_items y dejaba data en NULL, así que el proyecto creado abría
+     * vacío aunque el mensaje dijera que todo salió bien.
+     *
+     * @param {string} templateId
+     * @param {Object} customization - { projectName, client, location, quantities, prices }
+     * @param {string} userId
      */
-    static async useTemplate(templateId, customization, userId) {
+    static async useTemplate(templateId, customization = {}, userId) {
         try {
-            // Get template
             const { data: template, error: templateError } = await supabase
                 .from('project_templates')
                 .select('*')
@@ -216,46 +237,89 @@ export class TemplateService {
 
             if (templateError) throw templateError;
 
-            const templateData = template.template_data;
+            const contenido = template.template_data || {};
+            const infoPlantilla = contenido.projectInfo || {};
+            const partidasPlantilla = Array.isArray(contenido.items) ? contenido.items : [];
 
-            // Create new project
-            const projectData = {
-                user_id: userId,
-                name: customization.projectName || template.name,
+            if (partidasPlantilla.length === 0) {
+                throw new Error('Esta plantilla no tiene partidas. Vuelve a guardarla desde un presupuesto con contenido.');
+            }
+
+            const nombreProyecto = customization.projectName || template.name;
+            const projectId = generateId();
+
+            // Cada partida estrena id: son copias independientes, editar una no
+            // toca la plantilla ni otros proyectos creados a partir de ella.
+            const items = partidasPlantilla.map((item, index) => ({
+                id: generateId(),
+                code: item.code || '',
+                description: item.description,
+                unit: item.unit,
+                quantity: Number(customization.quantities?.[index] ?? item.quantity) || 0,
+                unitPrice: Number(customization.prices?.[index] ?? item.unitPrice ?? item.price) || 0,
+                category: item.category,
+                notes: item.notes || '',
+                apuData: item.apuData || null,
+                calculation_basis: item.calculation_basis || '',
+                order_index: index
+            }));
+
+            const projectInfo = {
+                id: projectId,
+                project: nombreProyecto,
                 client: customization.client || '',
-                location: customization.location || templateData.projectInfo.location,
-                type: templateData.projectInfo.type,
-                tax_rate: templateData.projectInfo.taxRate,
-                indirect_percentage: templateData.projectInfo.indirect_percentage ?? 0,
-                profit_percentage: templateData.projectInfo.profit_percentage ?? 0
+                location: customization.location || infoPlantilla.location || '',
+                type: infoPlantilla.type || 'General',
+                taxRate: infoPlantilla.taxRate ?? 16,
+                indirect_percentage: infoPlantilla.indirect_percentage ?? 0,
+                profit_percentage: infoPlantilla.profit_percentage ?? 0,
+                date: new Date().toISOString().split('T')[0]
+            };
+
+            // Misma forma que escribe SupabaseService.saveProject
+            const contenidoProyecto = {
+                id: projectId,
+                projectInfo,
+                items,
+                scheduleData: null,
+                materialList: [],
+                materialAssumptions: [],
+                creadoDesdePlantilla: {
+                    templateId,
+                    nombre: template.name,
+                    fecha: new Date().toISOString()
+                }
             };
 
             const { data: project, error: projectError } = await supabase
                 .from('projects')
-                .insert([projectData])
+                .insert([{
+                    id: projectId,
+                    user_id: userId,
+                    name: nombreProyecto,
+                    client: projectInfo.client,
+                    location: projectInfo.location,
+                    type: projectInfo.type,
+                    tax_rate: projectInfo.taxRate,
+                    indirect_percentage: projectInfo.indirect_percentage,
+                    profit_percentage: projectInfo.profit_percentage,
+                    data: contenidoProyecto
+                }])
                 .select()
                 .single();
 
             if (projectError) throw projectError;
 
-            // Create budget items
-            const items = templateData.items.map((item, index) => ({
-                project_id: project.id,
-                code: item.code,
-                description: item.description,
-                unit: item.unit,
-                quantity: customization.quantities?.[index] || item.quantity,
-                price: customization.prices?.[index] || item.price,
-                category: item.category,
-                notes: item.notes,
-                order_index: index
-            }));
-
-            const { error: itemsError } = await supabase
-                .from('budget_items')
-                .insert(items);
-
-            if (itemsError) throw itemsError;
+            // Contador de uso: para saber qué plantillas sirven de verdad.
+            // Si falla no se interrumpe: el proyecto ya se creó bien.
+            try {
+                await supabase
+                    .from('project_templates')
+                    .update({ usage_count: (template.usage_count || 0) + 1 })
+                    .eq('id', templateId);
+            } catch (error) {
+                console.warn('No se pudo actualizar el contador de uso:', error);
+            }
 
             return {
                 project,
@@ -263,6 +327,79 @@ export class TemplateService {
             };
         } catch (error) {
             console.error('Error using template:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Duplica un presupuesto tal cual, sin pasar por una plantilla.
+     * Para cuando solo quieres partir de uno que ya hiciste y cambiarle cosas.
+     *
+     * @param {string} projectId - Proyecto original
+     * @param {string} nuevoNombre - Nombre de la copia
+     * @returns {Promise<Object>} El proyecto nuevo
+     */
+    static async duplicarProyecto(projectId, nuevoNombre) {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error('Necesitas iniciar sesión para duplicar un presupuesto.');
+
+            const { data: original, error: errorOriginal } = await supabase
+                .from('projects')
+                .select('*')
+                .eq('id', projectId)
+                .single();
+
+            if (errorOriginal) throw errorOriginal;
+
+            const contenido = original.data || {};
+            const nuevoId = generateId();
+            const nombre = nuevoNombre || `${original.name} (copia)`;
+
+            // Ids nuevos en las partidas para que las dos copias sean independientes
+            const items = (contenido.items || []).map(item => ({
+                ...item,
+                id: generateId()
+            }));
+
+            const contenidoNuevo = {
+                ...contenido,
+                id: nuevoId,
+                projectInfo: {
+                    ...(contenido.projectInfo || {}),
+                    id: nuevoId,
+                    project: nombre,
+                    date: new Date().toISOString().split('T')[0]
+                },
+                items,
+                // El cronograma y la bitácora son del proyecto original: se
+                // vuelven a generar para el nuevo con sus propias fechas.
+                scheduleData: null,
+                duplicadoDe: { projectId, nombre: original.name, fecha: new Date().toISOString() }
+            };
+
+            const { data: copia, error: errorCopia } = await supabase
+                .from('projects')
+                .insert([{
+                    id: nuevoId,
+                    user_id: user.id,
+                    name: nombre,
+                    client: original.client,
+                    location: original.location,
+                    type: original.type,
+                    tax_rate: original.tax_rate,
+                    indirect_percentage: original.indirect_percentage,
+                    profit_percentage: original.profit_percentage,
+                    data: contenidoNuevo
+                }])
+                .select()
+                .single();
+
+            if (errorCopia) throw errorCopia;
+
+            return { project: copia, itemsCount: items.length };
+        } catch (error) {
+            console.error('Error duplicando el proyecto:', error);
             throw error;
         }
     }
