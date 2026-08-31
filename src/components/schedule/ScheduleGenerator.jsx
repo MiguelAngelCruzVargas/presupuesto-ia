@@ -35,7 +35,10 @@ const ScheduleGenerator = ({
             sat: true,
             sun: false
         },
-        notes: ''
+        notes: '',
+        // Frentes de trabajo en paralelo. Divide la duracion de cada partida:
+        // 834 dias de excavacion con 1 cuadrilla son 105 con 8.
+        cuadrillas: 1
     });
 
     // Sincronizar scheduleData cuando cambie la prop
@@ -248,6 +251,26 @@ const ScheduleGenerator = ({
                                             {day.label}
                                         </button>
                                     ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">
+                                    Cuadrillas en paralelo
+                                </label>
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="20"
+                                        value={config.cuadrillas}
+                                        onChange={(e) => setConfig({ ...config, cuadrillas: Math.max(1, Math.min(20, Number(e.target.value) || 1)) })}
+                                        className="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                    />
+                                    <p className="text-xs text-slate-500 flex-1">
+                                        Frentes de trabajo simultaneos. Las duraciones se calculan como
+                                        cantidad / (rendimiento x cuadrillas), asi que subirlo acorta el plazo.
+                                    </p>
                                 </div>
                             </div>
 

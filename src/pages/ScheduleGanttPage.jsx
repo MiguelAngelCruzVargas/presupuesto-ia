@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Calendar, Clock, BarChart3, Package } from 'lucide-react';
 import GanttChart from '../components/schedule/GanttChart';
 import ProjectPersistenceService from '../services/ProjectPersistenceService';
 import InsumosPorFase from '../components/schedule/InsumosPorFase';
+import BitacoraService from '../services/BitacoraService';
 
 const ScheduleGanttPage = () => {
     const { id } = useParams();
@@ -12,7 +13,8 @@ const ScheduleGanttPage = () => {
     const [loading, setLoading] = useState(true);
     const [projectInfo, setProjectInfo] = useState(null);
     const [items, setItems] = useState([]);
-    const [vista, setVista] = useState('gantt'); // 'gantt' | 'insumos' 
+    const [vista, setVista] = useState('gantt'); // 'gantt' | 'insumos'
+    const [logs, setLogs] = useState([]);
 
     useEffect(() => {
         loadSchedule();
@@ -33,6 +35,14 @@ const ScheduleGanttPage = () => {
                 setProjectInfo(project.projectInfo);
                 // Las partidas traen el APU, de donde salen los insumos
                 setItems(project.items || []);
+
+                // Avance real reportado en bitácora, para contrastarlo con lo
+                // programado. Si falla, el Gantt simplemente muestra 0%.
+                try {
+                    setLogs(await BitacoraService.loadLogs(id));
+                } catch (error) {
+                    console.warn('No se pudo cargar el avance de bitácora:', error);
+                }
             } else {
                 // Si no hay cronograma, redirigir al editor
                 navigate(`/editor/${id}`);
@@ -57,6 +67,27 @@ const ScheduleGanttPage = () => {
             }
         }
     };
+
+    // Avance real por partida: del ultimo reporte de bitacora de cada una.
+    // Se declara antes de los returns tempranos para no alterar el orden de hooks.
+    const avancePorPartida = useMemo(() => {
+        const mapa = new Map();
+        logs.forEach(log => {
+            const item = items.find(i => String(i.id) === String(log.task_id));
+            const nombre = item?.description;
+            if (!nombre) return;
+
+            const previo = mapa.get(nombre);
+            const fecha = log.log_date || log.created_at;
+            if (!previo || new Date(fecha) > new Date(previo.fecha)) {
+                mapa.set(nombre, {
+                    progreso: Number(log.progress_percentage) || 0,
+                    fecha
+                });
+            }
+        });
+        return mapa;
+    }, [logs, items]);
 
     if (loading) {
         return (
@@ -157,6 +188,7 @@ const ScheduleGanttPage = () => {
                             scheduleData={scheduleData}
                             onUpdate={handleUpdate}
                             startDate={startDate ? new Date(startDate) : new Date()}
+                            avancePorPartida={avancePorPartida}
                         />
                     ) : (
                         <InsumosPorFase scheduleData={scheduleData} items={items} />

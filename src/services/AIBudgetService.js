@@ -9,6 +9,7 @@ import { ErrorService } from './ErrorService';
 import { MarketPriceService } from './MarketPriceService';
 import { APUService } from './APUService';
 import { ScheduleDurationService } from './ScheduleDurationService';
+import { CriticalPathService } from './CriticalPathService';
 import { getCurrentYear, getCurrentYearRange } from '../utils/helpers';
 import { generateId } from '../utils/helpers';
 import { APP_CONFIG } from '../config/appConfig';
@@ -907,7 +908,10 @@ Escribe descripciones técnicas, profesionales y claras.`;
                 sat: true,
                 sun: false
             },
-            notes: config.notes || ''
+            notes: config.notes || '',
+            // Frentes en paralelo: entra en la firma para que cambiarlo
+            // regenere el cronograma en vez de servir el anterior.
+            cuadrillas: Math.max(1, Number(config.cuadrillas) || 1)
         };
 
         const scheduleSignature = this.buildScheduleSignature(validItems, projectInfo, normalizedConfig);
@@ -915,7 +919,7 @@ Escribe descripciones técnicas, profesionales y claras.`;
         // Las duraciones se CALCULAN aquí (cantidad ÷ rendimiento), no las
         // adivina la IA. A la IA solo le toca agrupar y secuenciar las fases.
         const calculo = ScheduleDurationService.calcularDuraciones(validItems, {
-            cuadrillas: config.cuadrillas || 1
+            cuadrillas: normalizedConfig.cuadrillas
         });
 
         try {
@@ -944,6 +948,7 @@ Devuelve SOLO JSON válido con esta estructura:
       "startWeek": 1,
       "endWeek": 2,
       "items": ["Partida 1", "Partida 2"],
+      "dependsOn": ["Nombre de la fase que debe terminar antes"],
       "resources": ["Cuadrilla", "Herramienta menor"],
       "risks": ["Clima", "Suministro"],
       "notes": "Notas de planeación",
@@ -967,6 +972,13 @@ Reglas:
 - No repitas partidas entre fases.
 - "items" debe contener descripciones de las partidas asignadas.
 - "name" debe ser una etapa ejecutiva, por ejemplo: "Preliminares", "Cimentación", "Albañilería", "Instalaciones", "Acabados", "Entrega".
+- "dependsOn" es CLAVE: lista los nombres de las fases que deben terminar antes
+  de que esta empiece. Si dos fases pueden ejecutarse al mismo tiempo (por
+  ejemplo Herrería e Instalaciones despues de Albañilería), dales la MISMA
+  dependencia en vez de encadenarlas una tras otra. Deja "dependsOn": [] solo
+  en la primera fase. De esto sale la ruta crítica y las holguras, así que una
+  cadena lineal sin paralelismo empobrece el programa.
+- NO marques "isCritical": se calcula solo a partir de las dependencias.
 - Si el proyecto es pequeño, usa pocas fases bien agrupadas.
 - Si falta información, asume una secuencia constructiva estándar en México.
             `.trim();
@@ -1043,7 +1055,9 @@ ${itemsList}
                 resources: Array.isArray(phase.resources) ? phase.resources.filter(Boolean) : [],
                 risks: Array.isArray(phase.risks) ? phase.risks.filter(Boolean) : [],
                 notes: phase.notes || '',
-                isCritical: Boolean(phase.isCritical)
+                // Se conserva lo que declaró la IA; isCritical NO se toma de
+                // ella, lo calcula el CPM en finalizeSchedule.
+                dependsOn: Array.isArray(phase.dependsOn) ? phase.dependsOn.filter(Boolean) : []
             };
         });
 
@@ -1111,20 +1125,29 @@ ${itemsList}
 
     static finalizeSchedule(phases, config = {}, items = [], projectInfo = {}, metadata = {}) {
         const startDate = config.startDate || new Date().toISOString().split('T')[0];
-        const normalizedPhases = phases.map(phase => {
-            const phaseStartDate = this.addWorkingDays(startDate, (phase.startWeek - 1) * 7, config.workDays);
-            const phaseEndDate = this.addWorkingDays(phaseStartDate, Math.max(0, phase.durationWeeks * 7 - 1), config.workDays);
+
+        // Ruta crítica real: las fechas salen de la red de dependencias, no de
+        // una fila india. Así dos fases que pueden ir a la vez, van a la vez.
+        const red = CriticalPathService.calcular(phases);
+
+        const normalizedPhases = red.fases.map(phase => {
+            const phaseStartDate = this.addWorkingDays(startDate, phase.inicioTempranoDia, config.workDays);
+            const duracionDias = phase.duracionDias || (phase.durationWeeks || 1) * 7;
+            const phaseEndDate = this.addWorkingDays(phaseStartDate, Math.max(0, duracionDias - 1), config.workDays);
 
             return {
                 ...phase,
+                startWeek: Math.floor(phase.inicioTempranoDia / 7) + 1,
+                endWeek: Math.floor((phase.finTempranoDia - 1) / 7) + 1,
                 startDate: phaseStartDate,
-                endDate: phaseEndDate
+                endDate: phaseEndDate,
+                // Cuánto se puede retrasar sin mover la fecha de entrega
+                holguraDias: phase.holguraDias,
+                holguraSemanas: Number((phase.holguraDias / 7).toFixed(1))
             };
         });
 
-        const totalDurationWeeks = normalizedPhases.length > 0
-            ? Math.max(...normalizedPhases.map(phase => phase.endWeek || 0))
-            : 0;
+        const totalDurationWeeks = Math.max(1, Math.ceil(red.duracionTotalDias / 7));
 
         // Cada partida usa SU duración calculada y se escalona dentro de la fase.
         // Antes todas compartían startWeek/endWeek de la fase, así que salían
@@ -1204,6 +1227,11 @@ ${itemsList}
                     cobertura: metadata.calculo.cobertura
                 }
                 : null,
+            // Ruta crítica calculada, no opinada
+            rutaCritica: red.rutaCritica,
+            duracionTotalDias: red.duracionTotalDias,
+            tieneParalelo: red.tieneParalelo,
+            cuadrillas: config.cuadrillas || 1,
             projectSnapshot: {
                 project: projectInfo.project || projectInfo.projectName || projectInfo.name || '',
                 type: this.resolveProjectType(projectInfo),

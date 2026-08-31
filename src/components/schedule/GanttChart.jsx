@@ -15,6 +15,23 @@ const getWorkingDays = (start, end, workDays) => {
 };
 
 /**
+ * Avance real de una fase: promedio del progreso reportado en bitácora para
+ * las partidas que la componen. Las partidas sin reporte cuentan como 0,
+ * porque no reportar no es lo mismo que estar avanzado.
+ */
+const calcularAvanceDeFase = (phase, avancePorPartida) => {
+    const partidas = phase?.items || [];
+    if (!avancePorPartida || avancePorPartida.size === 0 || partidas.length === 0) return 0;
+
+    const suma = partidas.reduce(
+        (total, nombre) => total + (avancePorPartida.get(nombre)?.progreso || 0),
+        0
+    );
+
+    return Math.round(suma / partidas.length);
+};
+
+/**
  * GanttChart Component
  * Visualización interactiva tipo Gantt del cronograma con drag & drop y dependencias
  */
@@ -22,7 +39,9 @@ const GanttChart = ({
     scheduleData, 
     onUpdate, 
     startDate = null,
-    workDays = { mon: true, tue: true, wed: true, thu: true, fri: true, sat: true, sun: false }
+    workDays = { mon: true, tue: true, wed: true, thu: true, fri: true, sat: true, sun: false },
+    // Map descripción de partida -> { progreso, fecha } tomado de la bitácora
+    avancePorPartida = new Map()
 }) => {
     const { phases = [], totalDurationWeeks = 0 } = scheduleData || {};
     const [viewMode, setViewMode] = useState('weeks'); // 'days', 'weeks', 'months'
@@ -70,22 +89,30 @@ const GanttChart = ({
                 start: start,
                 end: end,
                 duration: duration,
-                progress: 0, // Se puede calcular desde bitácora
+                // Avance real: promedio del progreso reportado en bitácora para
+                // las partidas de esta fase. Antes estaba fijo en 0.
+                progress: calcularAvanceDeFase(phase, avancePorPartida),
                 isCritical: phase.isCritical || false,
-                dependencies: [], // Se puede calcular desde lógica de fases
+                holguraDias: phase.holguraDias ?? null,
+                // Dependencias reales de la red; si no hay, cae a la fase previa
+                dependencies: (phase.dependsOn || []).length > 0 ? phase.dependsOn : [],
                 resources: phase.resources || [],
                 risks: phase.risks || [],
                 notes: phase.notes || '',
                 originalPhase: phase
             };
         });
-    }, [phases, startDateState]);
+    }, [phases, startDateState, avancePorPartida]);
 
-    // Calcular dependencias automáticamente (una fase depende de la anterior)
+    // Dependencias entre barras: se traducen los nombres de fase declarados por
+    // la red a los ids del Gantt. Sin red, se asume la fase anterior.
     const tasksWithDependencies = useMemo(() => {
+        const idPorNombre = new Map(tasks.map(t => [t.name, t.id]));
         return tasks.map((task, index) => ({
             ...task,
-            dependencies: index > 0 ? [`phase-${index - 1}`] : []
+            dependencies: task.dependencies.length > 0
+                ? task.dependencies.map(nombre => idPorNombre.get(nombre)).filter(Boolean)
+                : (index > 0 ? [`phase-${index - 1}`] : [])
         }));
     }, [tasks]);
 
