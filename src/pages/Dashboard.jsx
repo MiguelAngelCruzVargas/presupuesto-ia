@@ -10,7 +10,6 @@ import { AIBudgetService } from '../services/AIBudgetService';
 import { ValidationService } from '../services/ValidationService';
 import { ErrorService } from '../services/ErrorService';
 import { CalculationsService } from '../services/CalculationsService';
-import ErrorTestPanel from '../components/testing/ErrorTestPanel';
 import { supabase } from '../lib/supabaseClient';
 import { APP_CONFIG } from '../config/appConfig';
 
@@ -20,7 +19,6 @@ const Dashboard = () => {
     const navigate = useNavigate();
     const [aiPrompt, setAiPrompt] = useState('');
     const [isAiLoading, setIsAiLoading] = useState(false);
-    const [showErrorTestPanel, setShowErrorTestPanel] = useState(false);
     const [recentProjects, setRecentProjects] = useState([]);
     const [overallStats, setOverallStats] = useState(null);
     const [loadingProjects, setLoadingProjects] = useState(false);
@@ -320,8 +318,10 @@ const Dashboard = () => {
                 </div>
             )}
 
-            {/* Sin Proyecto Actual */}
-            {items.length === 0 && !loadingProjects && (
+            {/* Sin proyecto abierto, pero sí tienes proyectos guardados.
+                Lleva recentProjects.length > 0 porque si no, esta tarjeta y la
+                de "No tienes proyectos aún" salían las dos a la vez. */}
+            {items.length === 0 && !loadingProjects && recentProjects.length > 0 && (
                 <Card className="text-center py-12 bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-800 dark:to-slate-900 border-2 border-dashed border-slate-400 dark:border-slate-600">
                     <FolderOpen size={64} className="mx-auto text-slate-400 dark:text-slate-500 mb-4" />
                     <h3 className="text-xl font-bold text-slate-800 dark:text-slate-50 mb-2">No hay proyecto activo</h3>
@@ -495,29 +495,6 @@ const Dashboard = () => {
                 </div>
             </Card>
 
-            {/* Panel de Prueba de Errores - Solo en desarrollo */}
-            {import.meta.env.DEV && (
-                <Card className="border-2 border-dashed border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-900/10">
-                    <div className="flex items-center justify-between mb-4">
-                        <div>
-                            <h3 className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2">
-                                <Info size={20} />
-                                Panel de Prueba de Errores (Solo Desarrollo)
-                            </h3>
-                            <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                                Prueba diferentes tipos de errores para verificar el sistema de manejo
-                            </p>
-                        </div>
-                        <button
-                            onClick={() => setShowErrorTestPanel(!showErrorTestPanel)}
-                            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition"
-                        >
-                            {showErrorTestPanel ? 'Ocultar' : 'Mostrar'}
-                        </button>
-                    </div>
-                    {showErrorTestPanel && <ErrorTestPanel />}
-                </Card>
-            )}
         </div>
     );
 };

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calendar, Clock } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, BarChart3, Package } from 'lucide-react';
 import GanttChart from '../components/schedule/GanttChart';
 import ProjectPersistenceService from '../services/ProjectPersistenceService';
+import InsumosPorFase from '../components/schedule/InsumosPorFase';
 
 const ScheduleGanttPage = () => {
     const { id } = useParams();
@@ -10,6 +11,8 @@ const ScheduleGanttPage = () => {
     const [scheduleData, setScheduleData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [projectInfo, setProjectInfo] = useState(null);
+    const [items, setItems] = useState([]);
+    const [vista, setVista] = useState('gantt'); // 'gantt' | 'insumos' 
 
     useEffect(() => {
         loadSchedule();
@@ -28,6 +31,8 @@ const ScheduleGanttPage = () => {
             if (project && project.scheduleData) {
                 setScheduleData(project.scheduleData);
                 setProjectInfo(project.projectInfo);
+                // Las partidas traen el APU, de donde salen los insumos
+                setItems(project.items || []);
             } else {
                 // Si no hay cronograma, redirigir al editor
                 navigate(`/editor/${id}`);
@@ -123,14 +128,39 @@ const ScheduleGanttPage = () => {
                 </div>
             </div>
 
-            {/* Gantt Chart - Ocupa todo el espacio disponible */}
-            <div className="w-full h-[calc(100vh-100px)] p-4">
+            {/* Pestañas: el Gantt dice CUÁNDO se ejecuta; los insumos, QUÉ comprar y para cuándo */}
+            <div className="w-full px-4 pt-3">
+                <div className="inline-flex bg-slate-200/70 rounded-xl p-1 gap-1">
+                    <button
+                        type="button"
+                        onClick={() => setVista('gantt')}
+                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition min-h-[40px] ${vista === 'gantt' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                    >
+                        <BarChart3 size={16} />
+                        Cronograma
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setVista('insumos')}
+                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition min-h-[40px] ${vista === 'insumos' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                    >
+                        <Package size={16} />
+                        Insumos por fase
+                    </button>
+                </div>
+            </div>
+
+            <div className="w-full h-[calc(100vh-160px)] p-4">
                 <div className="h-full w-full bg-slate-50 rounded-lg overflow-hidden border border-slate-200">
-                    <GanttChart
-                        scheduleData={scheduleData}
-                        onUpdate={handleUpdate}
-                        startDate={startDate ? new Date(startDate) : new Date()}
-                    />
+                    {vista === 'gantt' ? (
+                        <GanttChart
+                            scheduleData={scheduleData}
+                            onUpdate={handleUpdate}
+                            startDate={startDate ? new Date(startDate) : new Date()}
+                        />
+                    ) : (
+                        <InsumosPorFase scheduleData={scheduleData} items={items} />
+                    )}
                 </div>
             </div>
         </div>

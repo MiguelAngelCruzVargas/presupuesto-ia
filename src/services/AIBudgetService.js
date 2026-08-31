@@ -8,6 +8,7 @@ import { BackendAIService } from './BackendAIService';
 import { ErrorService } from './ErrorService';
 import { MarketPriceService } from './MarketPriceService';
 import { APUService } from './APUService';
+import { ScheduleDurationService } from './ScheduleDurationService';
 import { getCurrentYear, getCurrentYearRange } from '../utils/helpers';
 import { generateId } from '../utils/helpers';
 import { APP_CONFIG } from '../config/appConfig';
@@ -911,9 +912,19 @@ Escribe descripciones técnicas, profesionales y claras.`;
 
         const scheduleSignature = this.buildScheduleSignature(validItems, projectInfo, normalizedConfig);
 
+        // Las duraciones se CALCULAN aquí (cantidad ÷ rendimiento), no las
+        // adivina la IA. A la IA solo le toca agrupar y secuenciar las fases.
+        const calculo = ScheduleDurationService.calcularDuraciones(validItems, {
+            cuadrillas: config.cuadrillas || 1
+        });
+
         try {
             const itemsList = validItems.map((item, index) => (
-                `${index + 1}. ${item.description} | cantidad: ${item.quantity} ${item.unit || 'pza'} | categoría: ${item.category || 'General'}`
+                ScheduleDurationService.describirParaPrompt(
+                    item,
+                    calculo.duraciones.get(item.id ?? index),
+                    index
+                )
             )).join('\n');
 
             const projectSummary = this.buildProjectContextSummary(validItems, projectInfo);
@@ -945,6 +956,11 @@ Reglas:
 - Entre 3 y 8 fases.
 - Usa semanas enteras.
 - Orden lógico constructivo, con secuencia de dependencias real.
+- IMPORTANTE: cada partida trae su DURACIÓN CALCULADA a partir de la cantidad
+  y el rendimiento real de la cuadrilla. NO inventes duraciones: la duración de
+  una fase debe ser coherente con la suma de las partidas que agrupa (menos lo
+  que se pueda traslapar). Si agrupas partidas que suman 30 días de trabajo,
+  esa fase no puede durar 1 semana.
 - Agrupa partidas por ETAPAS DE OBRA, no una fase por cada partida.
 - Intenta paralelizar actividades compatibles cuando sea razonable.
 - Considera prácticas mexicanas de obra: preliminares, suministros, frentes de trabajo, revisiones y cierre.
@@ -982,13 +998,15 @@ ${itemsList}
             const parsed = JSON.parse(this.cleanJson(text));
             return this.normalizeScheduleResponse(parsed, validItems, normalizedConfig, projectInfo, {
                 scheduleSignature,
-                generationMode: 'ai'
+                generationMode: 'ai',
+                calculo
             });
         } catch (error) {
             console.warn('Falling back to local schedule generation:', error);
             return this.buildFallbackSchedule(validItems, projectInfo, normalizedConfig, {
                 scheduleSignature,
-                generationMode: 'best_practice_fallback'
+                generationMode: 'best_practice_fallback',
+                calculo
             });
         }
     }
@@ -1050,17 +1068,23 @@ ${itemsList}
             phaseBuckets.get(phaseName).push(item);
         });
 
+        // Duraciones reales por partida; si no vinieron ya calculadas, se calculan
+        const calculo = metadata.calculo
+            || ScheduleDurationService.calcularDuraciones(items, { cuadrillas: config.cuadrillas || 1 });
+        const duracionDe = (item, index) => calculo.duraciones.get(item.id ?? index)?.dias || 1;
+
         let currentWeek = 1;
         const entries = Array.from(phaseBuckets.entries());
 
         const phases = entries.map(([name, phaseItems], index) => {
-            const durationWeeks = Math.max(
-                1,
-                Math.min(
-                    6,
-                    Math.ceil(phaseItems.reduce((sum, item) => sum + this.estimateTaskDurationWeeks(item), 0))
-                )
+            // La fase dura lo que suman sus partidas, sin tope artificial:
+            // antes se recortaba a 6 semanas y una excavación grande cabía igual
+            // que una chica.
+            const diasFase = phaseItems.reduce(
+                (sum, item) => sum + duracionDe(item, items.indexOf(item)),
+                0
             );
+            const durationWeeks = Math.max(1, Math.ceil(diasFase / 7));
 
             const startWeek = currentWeek;
             const endWeek = startWeek + durationWeeks - 1;
@@ -1082,7 +1106,7 @@ ${itemsList}
             };
         });
 
-        return this.finalizeSchedule(phases, config, items, projectInfo, metadata);
+        return this.finalizeSchedule(phases, config, items, projectInfo, { ...metadata, calculo });
     }
 
     static finalizeSchedule(phases, config = {}, items = [], projectInfo = {}, metadata = {}) {
@@ -1102,19 +1126,63 @@ ${itemsList}
             ? Math.max(...normalizedPhases.map(phase => phase.endWeek || 0))
             : 0;
 
-        const tasks = normalizedPhases.flatMap(phase =>
-            (phase.items || []).map((itemName, index) => ({
-                id: generateId(),
-                name: itemName,
-                phaseName: phase.name,
-                startWeek: phase.startWeek,
-                endWeek: phase.endWeek,
-                durationWeeks: Math.max(1, Math.ceil(phase.durationWeeks / Math.max(1, phase.items.length))),
-                isCritical: phase.isCritical,
-                notes: phase.notes,
-                order: index + 1
-            }))
-        );
+        // Cada partida usa SU duración calculada y se escalona dentro de la fase.
+        // Antes todas compartían startWeek/endWeek de la fase, así que salían
+        // arrancando el mismo día: eso no era una secuencia, era un adorno.
+        const duraciones = metadata.calculo?.duraciones;
+        const buscarItem = (nombre) => items.find(i => i.description === nombre);
+
+        const tasks = normalizedPhases.flatMap(phase => {
+            const nombres = phase.items || [];
+            const diasDisponibles = Math.max(1, (phase.durationWeeks || 1) * 7);
+
+            // Días que pide cada partida según cantidad y rendimiento
+            const diasPorTarea = nombres.map((nombre, index) => {
+                const item = buscarItem(nombre);
+                const calculo = item && duraciones ? duraciones.get(item.id ?? index) : null;
+                return Math.max(1, calculo?.dias || 1);
+            });
+
+            // Si no caben en la fase, se comprimen proporcionalmente: la fase
+            // manda sobre la suma, pero se conserva el peso relativo de cada una.
+            const diasSolicitados = diasPorTarea.reduce((a, b) => a + b, 0);
+            const factor = diasSolicitados > diasDisponibles
+                ? diasDisponibles / diasSolicitados
+                : 1;
+
+            let diaAcumulado = 0;
+            return nombres.map((nombre, index) => {
+                const item = buscarItem(nombre);
+                const calculo = item && duraciones ? duraciones.get(item.id ?? index) : null;
+                const dias = Math.max(1, Math.round(diasPorTarea[index] * factor));
+
+                const inicioDia = diaAcumulado;
+                diaAcumulado += dias;
+
+                const startWeek = (phase.startWeek || 1) + Math.floor(inicioDia / 7);
+                const endWeek = (phase.startWeek || 1) + Math.floor((inicioDia + dias - 1) / 7);
+
+                return {
+                    id: generateId(),
+                    name: nombre,
+                    phaseName: phase.name,
+                    startWeek,
+                    endWeek: Math.max(startWeek, endWeek),
+                    durationDays: dias,
+                    durationWeeks: Math.max(1, Math.ceil(dias / 7)),
+                    startDate: this.addWorkingDays(phase.startDate, inicioDia, config.workDays),
+                    endDate: this.addWorkingDays(phase.startDate, inicioDia + dias - 1, config.workDays),
+                    isCritical: phase.isCritical,
+                    notes: phase.notes,
+                    order: index + 1,
+                    // Para poder mostrar en qué se basó la duración
+                    jornales: calculo?.jornales ?? null,
+                    rendimientoDiario: calculo?.rendimientoDiario ?? null,
+                    duracionFuente: calculo?.fuente ?? 'sin_calculo',
+                    duracionExplicacion: calculo?.explicacion ?? null
+                };
+            });
+        });
 
         return {
             startDate,
@@ -1127,6 +1195,15 @@ ${itemsList}
             generatedAt: new Date().toISOString(),
             sourceSignature: metadata.scheduleSignature || this.buildScheduleSignature(items, projectInfo, config),
             generationMode: metadata.generationMode || 'manual',
+            // Qué tan sustentado está el programa: jornales totales y cuántas
+            // partidas tienen APU real detrás de su duración.
+            cargaTrabajo: metadata.calculo
+                ? {
+                    totalJornales: metadata.calculo.totalJornales,
+                    diasHombreSumados: metadata.calculo.totalDias,
+                    cobertura: metadata.calculo.cobertura
+                }
+                : null,
             projectSnapshot: {
                 project: projectInfo.project || projectInfo.projectName || projectInfo.name || '',
                 type: this.resolveProjectType(projectInfo),
@@ -1218,22 +1295,6 @@ ${itemsList}
         }
 
         return 'Obra General';
-    }
-
-    static estimateTaskDurationWeeks(item) {
-        const quantity = Number(item.quantity) || 1;
-        const unit = (item.unit || '').toLowerCase();
-        const category = (item.category || '').toLowerCase();
-
-        let base = 0.5;
-
-        if (['m3', 'm2'].includes(unit)) base = 1;
-        if (quantity > 50) base += 0.5;
-        if (quantity > 200) base += 0.5;
-        if (category.includes('instal')) base += 0.25;
-        if (category.includes('obra civil') || category.includes('albañ')) base += 0.5;
-
-        return Math.max(0.5, Math.min(2, base));
     }
 
     static inferResourcesForPhase(phaseName) {
