@@ -142,13 +142,18 @@ export class MarketPriceService {
             // Calcular relevancia y priorizar fuentes oficiales
             const descriptionTerms = description.toLowerCase().split(/\s+/).filter(t => t.length > 3);
             const scoredResults = data.map(item => {
-                let score = 0;
                 const itemText = item.description.toLowerCase();
 
-                // Puntos por coincidencias en descripción
+                // Puntos por coincidencias reales de texto. Se guarda aparte
+                // para poder exigir al menos una antes de dar por buena la
+                // coincidencia: los bonus de fuente y ubicación no deben
+                // colar un concepto que no tiene nada que ver.
+                let textScore = 0;
                 descriptionTerms.forEach(term => {
-                    if (itemText.includes(term)) score += 1;
+                    if (itemText.includes(term)) textScore += 1;
                 });
+
+                let score = textScore;
 
                 // Bonificación por ser fuente oficial (CDMX Tabulador)
                 if (officialSources.includes(item.source)) {
@@ -160,12 +165,28 @@ export class MarketPriceService {
                     score += 5;
                 }
 
-                return { ...item, relevanceScore: score };
+                return { ...item, textScore, relevanceScore: score };
             });
 
-            // Ordenar por relevancia (oficiales primero)
-            const sorted = scoredResults.sort((a, b) => {
-                // Primero por score de relevancia
+            // Descartar lo que no comparte NI UNA palabra con lo buscado.
+            //
+            // Antes se devolvía igual el primero de la lista aunque el score
+            // fuera 0, y quien llama tomaba ese precio como bueno. En pruebas
+            // reales eso hacía que "Azulejo cerámico en muros" se cotizara como
+            // "Arena cernida" a $450/m³, y encima se etiquetaba como
+            // "Coincidencia con Base de Datos Maestra": un precio inventado con
+            // apariencia de verificado, que es peor que no encontrar nada.
+            //
+            // El bonus de fuente oficial (+10) se cuenta aparte a propósito: si
+            // se sumara antes del filtro, un concepto sin ninguna palabra en
+            // común pasaría el corte solo por venir del tabulador.
+            const conCoincidenciaReal = scoredResults.filter(item => item.textScore > 0);
+
+            if (conCoincidenciaReal.length === 0) {
+                return [];
+            }
+
+            const sorted = conCoincidenciaReal.sort((a, b) => {
                 if (b.relevanceScore !== a.relevanceScore) {
                     return b.relevanceScore - a.relevanceScore;
                 }

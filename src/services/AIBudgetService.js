@@ -428,8 +428,19 @@ INSTRUCCIONES CLAVE:
                                     console.log(`      Original: "${oldDesc.substring(0, 80)}..."`);
                                     console.log(`      Base Maestra: "${matchedRecord.description.substring(0, 80)}..."`);
                                 } else {
-                                    // Si la similitud no es tan alta pero el precio/unidad coincide o es una aproximación razonable
-                                    if (matchedRecord.unit === item.unit || !matchedRecord.unit) {
+                                    // Similitud media: se toma el precio pero NO se
+                                    // cambia la descripción.
+                                    //
+                                    // Se exige un mínimo de parecido además de que
+                                    // coincida la unidad: solo por unidad, un
+                                    // "Azulejo en muros" podía quedar cotizado como
+                                    // "Arena cernida" nada más porque ambos van en m³,
+                                    // y encima etiquetado como precio de la base
+                                    // maestra.
+                                    const SIMILITUD_MINIMA_PARA_PRECIO = 0.15;
+                                    const pareceLoMismo = similarity >= SIMILITUD_MINIMA_PARA_PRECIO;
+
+                                    if (pareceLoMismo && (matchedRecord.unit === item.unit || !matchedRecord.unit)) {
                                         item.unitPrice = referencePrice;
                                         const sourceName = matchedRecord.source === 'cdmx_tabulador'
                                             ? 'Tabulador Oficial CDMX'
