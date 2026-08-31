@@ -4,6 +4,7 @@ import { formatCurrency, numberToWords } from '../utils/format';
 import { PDFTemplateService } from './PDFTemplateService';
 import { BudgetDocumentService } from './BudgetDocumentService';
 import { APP_CONFIG } from '../config/appConfig';
+import { DOCUMENT_TITLES } from '../config/reportConfig';
 
 export class PDFService {
     /**
@@ -58,8 +59,8 @@ export class PDFService {
         const headerTextColor = template?.headerTextColor || [255, 255, 255]; // Blanco por defecto
         const headerTextSize = template?.headerTextSize || 18; // Tamaño del título
         const headerSubtextSize = template?.headerSubtextSize || 9; // Tamaño del subtítulo
-        const headerText = template?.headerText || 'PRESUPUESTO DE OBRA';
-        const headerSubtext = template?.headerSubtext || 'DOCUMENTO TÉCNICO';
+        const headerText = template?.headerText || DOCUMENT_TITLES.budget;
+        const headerSubtext = template?.headerSubtext || DOCUMENT_TITLES.budgetSubtitle;
         const showHeader = template?.showHeader !== false;
 
         // --- HEADER ---

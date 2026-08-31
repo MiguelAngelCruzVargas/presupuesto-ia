@@ -7,6 +7,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useSidebar } from '../../context/SidebarContext';
 import { PDFTemplateService } from '../../services/PDFTemplateService';
 import ChangePasswordModal from '../auth/ChangePasswordModal';
+import { isAdminEmail } from '../../config/reportConfig';
 
 // En monitores de poca altura el bloque de abajo (tema + tarjeta de usuario)
 // se come el espacio del menú. Con esto se detecta para compactarlo.
@@ -38,7 +39,7 @@ const Sidebar = ({ mobileOpen, setMobileOpen }) => {
     const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
 
     // Verificar si es admin
-    const isAdmin = user?.email === 'isc20350265@gmail.com';
+    const isAdmin = isAdminEmail(user?.email);
 
     // Determinar si el sidebar debe mostrarse expandido (texto visible)
     // En mobile siempre expandido si está abierto, en desktop depende de isCollapsed

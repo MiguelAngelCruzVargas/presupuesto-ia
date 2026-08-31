@@ -9,6 +9,7 @@ import AlertModal from '../components/ui/AlertModal';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useProject } from '../context/ProjectContext';
 import LimitModal from '../components/subscription/LimitModal';
+import { SIGNATURE_SCHEMES, buildSignatureData, getSignatureScheme } from '../config/reportConfig';
 
 // Texto que se guarda en el log: descripción del bloque + descripciones por foto
 const buildLogContent = (entry, conceptName) => {
@@ -72,15 +73,10 @@ const PhotographicReportPage = () => {
         () => typeof window === 'undefined' || window.innerWidth >= 768
     );
 
-    // Estados para campos editables de las firmas
-    const [signatureData, setSignatureData] = useState({
-        contractorTitle: 'EL CONTRATISTA',
-        contractorName: '',
-        contractorRole: 'ADMINISTRADOR ÚNICO',
-        municipalityTitle: 'H. AYUNTAMIENTO',
-        supervisorName: '',
-        supervisorRole: 'DIRECTOR DE OBRAS PÚBLICAS'
-    });
+    // Estados para campos editables de las firmas.
+    // Los cargos salen del esquema elegido (obra pública, privada, industrial...)
+    // en vez de estar fijos a obra municipal.
+    const [signatureData, setSignatureData] = useState(() => buildSignatureData());
 
     // Cargar datos del proyecto y log si se está editando
     useEffect(() => {
@@ -99,12 +95,9 @@ const PhotographicReportPage = () => {
                         ...prev,
                         contractNumber: 'S/N'
                     }));
-                    setSignatureData(prev => ({
-                        ...prev,
-                        contractorTitle: 'EL CONTRATISTA',
-                        contractorRole: 'ADMINISTRADOR ÚNICO',
-                        municipalityTitle: 'H. AYUNTAMIENTO',
-                        supervisorRole: 'DIRECTOR DE OBRAS PÚBLICAS'
+                    setSignatureData(prev => buildSignatureData(prev.signatureScheme, {
+                        contractorName: prev.contractorName,
+                        supervisorName: prev.supervisorName
                     }));
                     return;
                 }
@@ -147,14 +140,17 @@ const PhotographicReportPage = () => {
                     photoFit: loadedProjectInfo.photoFit || 'auto'
                 });
 
-                // Inicializar datos de las firmas
+                // Firmas: lo guardado manda; si falta algo, se rellena con el
+                // esquema del proyecto (o el de por defecto en proyectos viejos)
+                const esquema = getSignatureScheme(loadedProjectInfo.signatureScheme);
                 setSignatureData({
-                    contractorTitle: loadedProjectInfo.contractorTitle || 'EL CONTRATISTA',
+                    signatureScheme: esquema.id,
+                    contractorTitle: loadedProjectInfo.contractorTitle || esquema.left.title,
                     contractorName: loadedProjectInfo.contractor || loadedProjectInfo.client || '',
-                    contractorRole: loadedProjectInfo.contractorRole || 'ADMINISTRADOR ÚNICO',
-                    municipalityTitle: loadedProjectInfo.municipalityTitle || 'H. AYUNTAMIENTO',
+                    contractorRole: loadedProjectInfo.contractorRole || esquema.left.role,
+                    municipalityTitle: loadedProjectInfo.municipalityTitle || esquema.right.title,
                     supervisorName: loadedProjectInfo.supervisorName || '',
-                    supervisorRole: loadedProjectInfo.supervisorRole || 'DIRECTOR DE OBRAS PÚBLICAS'
+                    supervisorRole: loadedProjectInfo.supervisorRole || esquema.right.role
                 });
 
                 // Fecha: si no estamos editando un log, usar la última fecha guardada
@@ -276,7 +272,7 @@ const PhotographicReportPage = () => {
 
             for (const file of selectedFiles) {
                 try {
-                    const optimized = await ImageUploadService.prepareImageForApp(file);
+                    const optimized = await ImageUploadService.prepareReportPhoto(file);
                     validFiles.push(optimized.file);
                     newPreviewUrls.push(ImageUploadService.createPreviewUrl(optimized.file));
                 } catch (error) {
@@ -318,7 +314,7 @@ const PhotographicReportPage = () => {
 
         for (const file of selectedFiles) {
             try {
-                const optimized = await ImageUploadService.prepareImageForApp(file);
+                const optimized = await ImageUploadService.prepareReportPhoto(file);
                 files.push(optimized.file);
                 previewUrls.push(ImageUploadService.createPreviewUrl(optimized.file));
             } catch (error) {
@@ -447,6 +443,7 @@ const PhotographicReportPage = () => {
             logoUrl: pdfLayout.logoUrl || '',
             photoGridCols: pdfLayout.gridCols,
             photoFit: pdfLayout.photoFit,
+            signatureScheme: signatureData.signatureScheme,
             contractorTitle: signatureData.contractorTitle,
             contractorName: signatureData.contractorName,
             contractorRole: signatureData.contractorRole,
@@ -1194,6 +1191,30 @@ const PhotographicReportPage = () => {
                         {/* Footer con Firmas */}
                         {entries.length > 0 && (
                             <div className="mt-6 sm:mt-8 bg-white border-2 border-slate-300 rounded-xl sm:rounded-2xl p-5 sm:p-8 shadow-md">
+                                {/* Esquema de firmas: rellena los cargos según el tipo de obra */}
+                                <div className="mb-6 pb-5 border-b border-slate-200">
+                                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                                        Tipo de obra (cargos de las firmas)
+                                    </label>
+                                    <select
+                                        value={signatureData.signatureScheme}
+                                        onChange={(e) => setSignatureData(prev => buildSignatureData(e.target.value, {
+                                            contractorName: prev.contractorName,
+                                            supervisorName: prev.supervisorName
+                                        }))}
+                                        className="w-full sm:max-w-md text-sm font-medium text-slate-800 border-2 border-slate-300 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-500 bg-white min-h-[44px]"
+                                    >
+                                        {SIGNATURE_SCHEMES.map(scheme => (
+                                            <option key={scheme.id} value={scheme.id}>
+                                                {scheme.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className="mt-1.5 text-xs text-slate-500">
+                                        {getSignatureScheme(signatureData.signatureScheme).description}. Los cargos se rellenan solos y puedes editarlos abajo.
+                                    </p>
+                                </div>
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12">
                                     {/* Firma del Contratista */}
                                     <div className="text-center space-y-2">
@@ -1217,7 +1238,7 @@ const PhotographicReportPage = () => {
                                             value={signatureData.contractorRole}
                                             onChange={(e) => setSignatureData({ ...signatureData, contractorRole: e.target.value })}
                                             className="text-xs text-slate-600 mt-2 border-b-2 border-slate-400 pb-1 focus:outline-none focus:border-indigo-600 bg-transparent text-center w-full max-w-xs mx-auto"
-                                            placeholder="ADMINISTRADOR ÚNICO"
+                                            placeholder={getSignatureScheme(signatureData.signatureScheme).left.role}
                                         />
                                     </div>
 
@@ -1229,7 +1250,7 @@ const PhotographicReportPage = () => {
                                             value={signatureData.municipalityTitle}
                                             onChange={(e) => setSignatureData({ ...signatureData, municipalityTitle: e.target.value })}
                                             className="text-xs font-bold text-slate-700 uppercase mb-2 border-b-2 border-slate-400 pb-1 focus:outline-none focus:border-indigo-600 bg-transparent text-center w-full max-w-xs mx-auto"
-                                            placeholder="H. AYUNTAMIENTO"
+                                            placeholder={getSignatureScheme(signatureData.signatureScheme).right.title}
                                         />
                                         <input
                                             type="text"
@@ -1243,7 +1264,7 @@ const PhotographicReportPage = () => {
                                             value={signatureData.supervisorRole}
                                             onChange={(e) => setSignatureData({ ...signatureData, supervisorRole: e.target.value })}
                                             className="text-xs text-slate-600 mt-2 border-b-2 border-slate-400 pb-1 focus:outline-none focus:border-indigo-600 bg-transparent text-center w-full max-w-xs mx-auto"
-                                            placeholder="DIRECTOR DE OBRAS PÚBLICAS"
+                                            placeholder={getSignatureScheme(signatureData.signatureScheme).right.role}
                                         />
                                     </div>
                                 </div>

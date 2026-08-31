@@ -1,14 +1,14 @@
 import { supabase } from '../lib/supabaseClient';
 import { systemSettingsService } from './SystemSettingsService';
+import { ADMIN_EMAILS } from '../config/reportConfig';
 
 /**
  * Servicio para manejar planes y límites de usuarios
  */
 export class SubscriptionService {
-    // Emails con acceso Pro permanente (administradores/desarrolladores)
-    static PRO_EMAILS = [
-        'isc20350265@gmail.com'
-    ];
+    // Emails con acceso Pro permanente (administradores/desarrolladores).
+    // Se configuran en VITE_ADMIN_EMAILS, separados por coma.
+    static PRO_EMAILS = ADMIN_EMAILS;
 
     // Definición de planes
     static PLANS = {

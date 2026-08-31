@@ -13,6 +13,7 @@
 
 import { generateId } from '../utils/helpers';
 import { supabase } from '../lib/supabaseClient';
+import { DOCUMENT_TITLES } from '../config/reportConfig';
 
 const STORAGE_KEY = 'presugenius_pdf_templates';
 const ACTIVE_TEMPLATE_KEY = 'presugenius_active_pdf_template';
@@ -176,8 +177,8 @@ export class PDFTemplateService {
             logoPosition: templateData.logoPosition || 'left',
             logoSize: templateData.logoSize || { width: 40, height: 40 }, // mm
             showHeader: templateData.showHeader !== false,
-            headerText: templateData.headerText || 'PRESUPUESTO DE OBRA',
-            headerSubtext: templateData.headerSubtext || 'DOCUMENTO TÉCNICO',
+            headerText: templateData.headerText || DOCUMENT_TITLES.budget,
+            headerSubtext: templateData.headerSubtext || DOCUMENT_TITLES.budgetSubtitle,
             footerText: templateData.footerText || '',
             createdAt: templateData.createdAt || now,
             updatedAt: now,

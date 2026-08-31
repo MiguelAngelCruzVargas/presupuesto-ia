@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { DOCUMENT_TITLES, getSignatureScheme } from '../config/reportConfig';
 
 export class PDFReportService {
     // Version: Fix autoTable import
@@ -149,8 +150,11 @@ export class PDFReportService {
 
         const contractor = options.contractor || projectInfo.contractor || projectInfo.client || 'Contratista';
         const contractNumber = options.contractNumber || projectInfo.contractNumber || 'S/N';
-        const supervisorName = options.supervisorName || projectInfo.supervisorName || 'Ing. Responsable';
-        const supervisorRole = options.supervisorRole || projectInfo.supervisorRole || 'DIRECTOR DE OBRAS PÚBLICAS';
+        // Los cargos por defecto salen del esquema de obra del proyecto
+        // (pública, privada, industrial...), no de textos fijos municipales.
+        const esquemaFirmas = getSignatureScheme(options.signatureScheme || projectInfo.signatureScheme);
+        const supervisorName = options.supervisorName || projectInfo.supervisorName || '';
+        const supervisorRole = options.supervisorRole || projectInfo.supervisorRole || esquemaFirmas.right.role;
         const concepts = options.concepts || this.extractConceptsFromLogs(logs);
         const obra = options.obra || projectInfo.project || projectInfo.name || 'Proyecto';
         const ubicacion = options.ubicacion || projectInfo.ubicacion || projectInfo.location || '';
@@ -162,10 +166,10 @@ export class PDFReportService {
         })() : '';
 
         // Valores editables de las firmas
-        const contractorTitle = options.contractorTitle || projectInfo.contractorTitle || 'EL CONTRATISTA';
+        const contractorTitle = options.contractorTitle || projectInfo.contractorTitle || esquemaFirmas.left.title;
         const contractorName = options.contractorName || projectInfo.contractorName || contractor;
-        const contractorRole = options.contractorRole || projectInfo.contractorRole || 'ADMINISTRADOR ÚNICO';
-        const municipalityTitle = options.municipalityTitle || projectInfo.municipalityTitle || 'H. AYUNTAMIENTO';
+        const contractorRole = options.contractorRole || projectInfo.contractorRole || esquemaFirmas.left.role;
+        const municipalityTitle = options.municipalityTitle || projectInfo.municipalityTitle || esquemaFirmas.right.title;
         // Opcionales: color de encabezado y logo
         // Color más intenso para que se note claramente en pantalla y en impresión
         const headerColor = options.headerColor || [199, 210, 254]; // Indigo muy claro por defecto
@@ -233,7 +237,7 @@ export class PDFReportService {
             const titleY = headerTop + headerHeight + 5;
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(10);
-            doc.text("REPORTE FOTOGRAFICO DE OBRA", pageWidth / 2, titleY, { align: 'center' });
+            doc.text(options.reportTitle || DOCUMENT_TITLES.photoReport, pageWidth / 2, titleY, { align: 'center' });
 
             // Preparar datos para la tabla
             // Solo mostrar el nombre de la obra; la ubicación va en su propia celda

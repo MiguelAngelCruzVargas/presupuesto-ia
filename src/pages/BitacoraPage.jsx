@@ -150,10 +150,11 @@ const BitacoraPage = () => {
                     obra: projectInfo.project || projectInfo.name || '',
                     supervisorName: projectInfo.supervisorName || '',
                     supervisorRole: projectInfo.supervisorRole || '',
-                    contractorTitle: projectInfo.contractorTitle || 'EL CONTRATISTA',
+                    signatureScheme: projectInfo.signatureScheme,
+                    contractorTitle: projectInfo.contractorTitle,
                     contractorName: projectInfo.contractorName || projectInfo.contractor || projectInfo.client || '',
-                    contractorRole: projectInfo.contractorRole || 'ADMINISTRADOR ÚNICO',
-                    municipalityTitle: projectInfo.municipalityTitle || 'H. AYUNTAMIENTO'
+                    contractorRole: projectInfo.contractorRole,
+                    municipalityTitle: projectInfo.municipalityTitle
                 };
 
                 const pdfBlob = await PDFReportService.generatePhotographicReportPreview(
@@ -272,12 +273,13 @@ const BitacoraPage = () => {
                                         contractor: projectInfo.contractor || projectInfo.client || 'Contratista',
                                         contractNumber: projectInfo.contractNumber || 'S/N',
                                         concepts: concepts,
-                                        supervisorName: projectInfo.supervisorName || 'Ing. Responsable',
-                                        supervisorRole: projectInfo.supervisorRole || 'DIRECTOR DE OBRAS PÚBLICAS',
-                                        contractorTitle: projectInfo.contractorTitle || 'EL CONTRATISTA',
+                                        supervisorName: projectInfo.supervisorName,
+                                        supervisorRole: projectInfo.supervisorRole,
+                                        signatureScheme: projectInfo.signatureScheme,
+                    contractorTitle: projectInfo.contractorTitle,
                                         contractorName: projectInfo.contractorName || projectInfo.contractor || projectInfo.client || '',
-                                        contractorRole: projectInfo.contractorRole || 'ADMINISTRADOR ÚNICO',
-                                        municipalityTitle: projectInfo.municipalityTitle || 'H. AYUNTAMIENTO'
+                                        contractorRole: projectInfo.contractorRole,
+                                        municipalityTitle: projectInfo.municipalityTitle
                                     };
 
                                     await PDFReportService.generatePhotographicReport(
@@ -318,8 +320,9 @@ const BitacoraPage = () => {
                                     contractor: projectInfo.contractor || projectInfo.client || 'Contratista',
                                     contractNumber: projectInfo.contractNumber || 'S/N',
                                     concepts: concepts,
-                                    supervisorName: projectInfo.supervisorName || 'Ing. Responsable',
-                                    supervisorRole: projectInfo.supervisorRole || 'DIRECTOR DE OBRAS PÚBLICAS'
+                                    supervisorName: projectInfo.supervisorName,
+                                    supervisorRole: projectInfo.supervisorRole,
+                                    signatureScheme: projectInfo.signatureScheme
                                 };
 
                                 await PDFReportService.generatePhotographicReport(
@@ -350,8 +353,9 @@ const BitacoraPage = () => {
                         contractor: projectInfo.contractor || projectInfo.client || 'Contratista',
                         contractNumber: projectInfo.contractNumber || 'S/N',
                         concepts: concepts,
-                        supervisorName: projectInfo.supervisorName || 'Ing. Responsable',
-                        supervisorRole: projectInfo.supervisorRole || 'DIRECTOR DE OBRAS PÚBLICAS'
+                        supervisorName: projectInfo.supervisorName,
+                        supervisorRole: projectInfo.supervisorRole,
+                        signatureScheme: projectInfo.signatureScheme
                     };
 
                     await PDFReportService.generatePhotographicReport(

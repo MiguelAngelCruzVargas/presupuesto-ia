@@ -7,8 +7,25 @@
 export class ImageUploadService {
     // Configuración
     static MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB de entrada permitido
-    static TARGET_FILE_SIZE_MB = 2; // 2MB objetivo de salida
+    static TARGET_FILE_SIZE_MB = 2; // 2MB objetivo de salida (uso general)
     static ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
+    /**
+     * Perfil para las fotos del reporte fotográfico.
+     *
+     * En el PDF la foto más grande posible mide 130 x 91 mm (2 columnas),
+     * que a 150 ppp son ~770 x 540 px. Con 1600 px de lado largo sobra
+     * resolución incluso para imprimir y para el recorte del ajuste
+     * automático, así que guardar 2 MB por foto era desperdiciar disco:
+     * este perfil las deja en ~400 KB, unas 5 veces menos.
+     */
+    static REPORT_PHOTO_PROFILE = {
+        targetSizeMB: 0.4,
+        maxDimension: 1600,
+        minDimension: 1024,
+        startQuality: 0.85,
+        minQuality: 0.62
+    };
 
     /**
      * Valida un archivo de imagen
@@ -318,6 +335,18 @@ export class ImageUploadService {
     static async prepareImageForApp(file, options = {}) {
         return this.compressImageSmart(file, {
             targetSizeMB: this.TARGET_FILE_SIZE_MB,
+            ...options
+        });
+    }
+
+    /**
+     * Prepara una foto para el reporte fotográfico con el perfil ligero.
+     * @param {File} file - Foto original de la cámara
+     * @returns {Promise<Object>} - { file, originalSize, compressedSize, reduction, ... }
+     */
+    static async prepareReportPhoto(file, options = {}) {
+        return this.compressImageSmart(file, {
+            ...this.REPORT_PHOTO_PROFILE,
             ...options
         });
     }
