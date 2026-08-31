@@ -1,0 +1,18 @@
+{
+  "name": "presupuesto-ia-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Proxy de IA y subida de fotos. Solo las dependencias que usa el servidor: el frontend no se instala aquí.",
+  "scripts": {
+    "start": "node src/lib/aiProxyServer.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.84.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "pdf-parse": "^2.4.5"
+  }
+}
