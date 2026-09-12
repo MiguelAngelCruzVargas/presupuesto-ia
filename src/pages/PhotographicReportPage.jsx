@@ -215,7 +215,8 @@ const PhotographicReportPage = () => {
     const [pdfLayout, setPdfLayout] = useState({
         logoUrl: '',
         gridCols: 3,
-        photoFit: 'auto'
+        photoFit: 'auto',
+        pageOrientation: 'auto'
     });
     const [uploadingLogo, setUploadingLogo] = useState(false);
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
@@ -303,7 +304,8 @@ const PhotographicReportPage = () => {
                 setPdfLayout({
                     logoUrl: loadedProjectInfo.logoUrl || '',
                     gridCols: Number(loadedProjectInfo.photoGridCols) || 3,
-                    photoFit: loadedProjectInfo.photoFit || 'auto'
+                    photoFit: loadedProjectInfo.photoFit || 'auto',
+                    pageOrientation: loadedProjectInfo.photoPageOrientation || 'auto'
                 });
 
                 // Firmas: lo guardado manda; si falta algo, se rellena con el
@@ -635,6 +637,7 @@ const PhotographicReportPage = () => {
             logoUrl: pdfLayout.logoUrl || '',
             photoGridCols: pdfLayout.gridCols,
             photoFit: pdfLayout.photoFit,
+            photoPageOrientation: pdfLayout.pageOrientation,
             signatureScheme: signatureData.signatureScheme,
             contractorTitle: signatureData.contractorTitle,
             contractorName: signatureData.contractorName,
@@ -686,6 +689,7 @@ const PhotographicReportPage = () => {
                     obra: pdfProjectInfo.project,
                     gridCols: pdfLayout.gridCols,
                     photoFit: pdfLayout.photoFit,
+                    pageOrientation: pdfLayout.pageOrientation,
                     logoUrl: pdfLayout.logoUrl || undefined
                 }
             );
@@ -752,6 +756,7 @@ const PhotographicReportPage = () => {
                         logoUrl: pdfLayout.logoUrl || '',
                         photoGridCols: pdfLayout.gridCols,
                         photoFit: pdfLayout.photoFit,
+                        photoPageOrientation: pdfLayout.pageOrientation,
                         lastReportDate: reportDate,
                         contractorTitle: signatureData.contractorTitle,
                         contractorName: signatureData.contractorName,
@@ -1036,7 +1041,7 @@ const PhotographicReportPage = () => {
                         </h2>
                         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6">
                             {/* Logo del membrete */}
-                            <div className="md:col-span-4">
+                            <div className="md:col-span-3">
                                 <label className="block text-[10px] md:text-xs font-bold text-slate-700 uppercase mb-2">Logo del membrete</label>
                                 <div className="flex items-center gap-3">
                                     <div className="w-20 h-14 shrink-0 rounded-lg border-2 border-slate-300 bg-slate-50 flex items-center justify-center overflow-hidden">
@@ -1070,14 +1075,14 @@ const PhotographicReportPage = () => {
                                 </div>
                             </div>
 
-                            {/* Fotos por hoja */}
-                            <div className="md:col-span-4">
-                                <label className="block text-[10px] md:text-xs font-bold text-slate-700 uppercase mb-2">Fotos por hoja</label>
+                            {/* Tamaño de las fotos */}
+                            <div className="md:col-span-3">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-700 uppercase mb-2">Tamaño de las fotos</label>
                                 <div className="flex gap-2">
                                     {[
-                                        { cols: 2, label: '2 grandes' },
-                                        { cols: 3, label: '6 normal' },
-                                        { cols: 4, label: '8 compacto' }
+                                        { cols: 2, label: 'Grandes' },
+                                        { cols: 3, label: 'Normal' },
+                                        { cols: 4, label: 'Compacto' }
                                     ].map(opt => (
                                         <button
                                             key={opt.cols}
@@ -1093,8 +1098,36 @@ const PhotographicReportPage = () => {
                                 </div>
                             </div>
 
+                            {/* Orientación de la hoja */}
+                            <div className="md:col-span-3">
+                                <label className="block text-[10px] md:text-xs font-bold text-slate-700 uppercase mb-2">Hoja del PDF</label>
+                                <div className="flex gap-2">
+                                    {[
+                                        { value: 'auto', label: 'Automática' },
+                                        { value: 'portrait', label: 'Vertical' },
+                                        { value: 'landscape', label: 'Horizontal' }
+                                    ].map(opt => (
+                                        <button
+                                            key={opt.value}
+                                            type="button"
+                                            onClick={() => setPdfLayout(prev => ({ ...prev, pageOrientation: opt.value }))}
+                                            className={`flex-1 px-2 py-2 text-[11px] font-bold rounded-lg border-2 transition min-h-[38px] touch-manipulation ${pdfLayout.pageOrientation === opt.value
+                                                ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                                                : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="mt-1.5 text-[11px] text-slate-500 leading-snug">
+                                    {pdfLayout.pageOrientation === 'auto' && 'La hoja se pone como la mayoría de tus fotos. Si mezclas verticales y horizontales, las de la orientación minoritaria salen completas pero con franjas blancas a los lados.'}
+                                    {pdfLayout.pageOrientation === 'portrait' && 'Hoja vertical: es la que mejor aprovecha las fotos tomadas con el teléfono.'}
+                                    {pdfLayout.pageOrientation === 'landscape' && 'Hoja horizontal: el formato de siempre, mejor si tus fotos son apaisadas.'}
+                                </p>
+                            </div>
+
                             {/* Ajuste de las fotos */}
-                            <div className="md:col-span-4">
+                            <div className="md:col-span-3">
                                 <label className="block text-[10px] md:text-xs font-bold text-slate-700 uppercase mb-2">Ajuste de las fotos</label>
                                 <div className="flex gap-2">
                                     {[

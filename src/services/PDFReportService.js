@@ -5,13 +5,24 @@ import { DOCUMENT_TITLES, getSignatureScheme } from '../config/reportConfig';
 export class PDFReportService {
     // Version: Fix autoTable import
     /**
-     * Distribución de fotos por hoja según el número de columnas elegido.
-     * Menos columnas = fotos más grandes; más columnas = más evidencia por hoja.
+     * Filas por hoja según las columnas elegidas Y la orientación de la hoja.
+     *
+     * La hoja vertical es más alta que ancha, así que admite una fila más sin
+     * achatar los recuadros. Con una sola tabla para las dos orientaciones, un
+     * reporte de fotos de teléfono salía con recuadros apaisados y cada foto
+     * desperdiciaba más de la mitad de su hueco entre franjas blancas.
      */
     static PHOTO_GRID_PRESETS = {
-        2: { rows: 1 },  // 2 fotos por hoja (grandes)
-        3: { rows: 2 },  // 6 fotos por hoja (formato estándar)
-        4: { rows: 2 }   // 8 fotos por hoja (compacto)
+        landscape: {
+            2: { rows: 1 },  // 2 fotos por hoja (grandes)
+            3: { rows: 2 },  // 6 fotos por hoja (formato estándar)
+            4: { rows: 2 }   // 8 fotos por hoja (compacto)
+        },
+        portrait: {
+            2: { rows: 2 },  // 4 fotos por hoja (grandes)
+            3: { rows: 3 },  // 9 fotos por hoja
+            4: { rows: 3 }   // 12 fotos por hoja (compacto)
+        }
     };
 
     /**
@@ -143,9 +154,65 @@ export class PDFReportService {
      * @returns {Promise<jsPDF>} Documento listo para guardar o exportar
      */
     static async buildPhotographicReportDoc(projectInfo, logs, reportDate, options = {}) {
-        const doc = new jsPDF('landscape', 'mm', 'a4');
-        const pageWidth = doc.internal.pageSize.width; // 297mm (horizontal)
-        const pageHeight = doc.internal.pageSize.height; // 210mm (horizontal)
+        // Las fotos se recogen y se miden ANTES de crear el documento, porque
+        // de su forma depende si la hoja va vertical u horizontal. El concepto
+        // general va arriba (CONCEPTOS); bajo cada foto solo su descripción
+        // opcional, si el usuario escribió alguna.
+        const logsByConcept = this.groupLogsByConcept(logs);
+        const allPhotos = [];
+        for (const [conceptName, conceptLogs] of Object.entries(logsByConcept)) {
+            for (const log of conceptLogs) {
+                if (!log.photos || log.photos.length === 0) continue;
+                const { photoCaptions: savedCaptions } = this.parsePhotoReportContent(log.content || '');
+                const photos = log.photos || [];
+                for (let i = 0; i < photos.length; i++) {
+                    allPhotos.push({
+                        url: photos[i],
+                        caption: (savedCaptions[i] || '').trim(),
+                        concept: conceptName
+                    });
+                }
+            }
+        }
+
+        // Se cargan una sola vez y se reutilizan al dibujar, para no pedir cada
+        // foto dos veces. Si alguna falla se marca y más abajo sale su recuadro
+        // de error, igual que antes.
+        await Promise.all(allPhotos.map(async (photo) => {
+            try {
+                photo.data = await this.fetchImage(photo.url);
+                const img = await this.loadImageElement(photo.data);
+                photo.width = img.naturalWidth || img.width;
+                photo.height = img.naturalHeight || img.height;
+            } catch (error) {
+                console.error('No se pudo preparar la foto para el PDF:', photo.url, error);
+                photo.error = true;
+            }
+        }));
+
+        // La mediana y no el promedio: una sola panorámica entre veinte fotos
+        // verticales no debe torcer la hoja entera. Sin medir nada (Node, sin
+        // DOM) se conserva el comportamiento de siempre: hoja horizontal.
+        const aspectos = allPhotos
+            .filter(photo => photo.width > 0 && photo.height > 0)
+            .map(photo => photo.width / photo.height)
+            .sort((a, b) => a - b);
+        const medianAspect = aspectos.length > 0
+            ? aspectos[Math.floor(aspectos.length / 2)]
+            : 4 / 3;
+
+        // 'auto' deja que mande la mediana. En un reporte que mezcla verticales
+        // y horizontales no hay una hoja que le venga bien a todas, así que el
+        // usuario puede fijarla: las fotos de la orientación minoritaria salen
+        // completas, con franjas, pero nunca recortadas ni deformadas.
+        const orientacionPedida = options.pageOrientation || projectInfo?.photoPageOrientation || 'auto';
+        const orientation = orientacionPedida === 'portrait' || orientacionPedida === 'landscape'
+            ? orientacionPedida
+            : (medianAspect < 1 ? 'portrait' : 'landscape');
+
+        const doc = new jsPDF(orientation, 'mm', 'a4');
+        const pageWidth = doc.internal.pageSize.width;
+        const pageHeight = doc.internal.pageSize.height;
         const margin = 15;
 
         const contractor = options.contractor || projectInfo.contractor || projectInfo.client || 'Contratista';
@@ -332,9 +399,6 @@ export class PDFReportService {
             doc.circle(centerX, footerY + 8, 8, 'S'); // Círculo para sello
         };
 
-        // Agrupar logs por concepto/tarea
-        const logsByConcept = this.groupLogsByConcept(logs);
-
         // --- Content Generation ---
         const contentTop = await addHeader() + 4;
 
@@ -345,14 +409,18 @@ export class PDFReportService {
         const usableWidth = pageWidth - (margin * 2);
         const photosPerRow = gridCols;
         const photoWidth = (usableWidth - gapX * (photosPerRow - 1)) / photosPerRow;
-        const rowsPerPage = (this.PHOTO_GRID_PRESETS[gridCols] || { rows: 2 }).rows;
+        const presetsHoja = this.PHOTO_GRID_PRESETS[orientation] || this.PHOTO_GRID_PRESETS.landscape;
+        const rowsPerPage = (presetsHoja[gridCols] || { rows: 2 }).rows;
         const contentBottom = pageHeight - 34; // por encima de las firmas
         const availableHeight = contentBottom - contentTop;
-        // La foto crece hasta llenar la hoja, sin pasar de una caja apaisada razonable
+        // El alto ideal es el que respeta la forma real de las fotos; si no cabe
+        // en la hoja se recorta a lo que quepa. Antes estaba fijo en 0.7 del
+        // ancho, o sea siempre apaisado, vinieran como vinieran las fotos.
+        const idealHeight = photoWidth / medianAspect;
         const photoHeight = Math.max(
             20,
             Math.min(
-                photoWidth * 0.7,
+                idealHeight,
                 (availableHeight - rowGap * (rowsPerPage - 1)) / rowsPerPage - captionHeight
             )
         );
@@ -361,24 +429,6 @@ export class PDFReportService {
 
         let yPos = contentTop;
 
-        // Recolectar fotos: concepto general va arriba (CONCEPTOS); bajo cada foto solo descripción opcional si existe
-        const allPhotos = [];
-        for (const [conceptName, conceptLogs] of Object.entries(logsByConcept)) {
-            for (const log of conceptLogs) {
-                if (!log.photos || log.photos.length === 0) continue;
-                const { photoCaptions: savedCaptions } = this.parsePhotoReportContent(log.content || '');
-                const photos = log.photos || [];
-                for (let i = 0; i < photos.length; i++) {
-                    const optionalCaption = (savedCaptions[i] || '').trim();
-                    allPhotos.push({
-                        url: photos[i],
-                        caption: optionalCaption,
-                        concept: conceptName
-                    });
-                }
-            }
-        }
-
         let photoIndex = 0;
         let pageStartIndex = 0;
 
@@ -386,7 +436,7 @@ export class PDFReportService {
             // Nueva hoja cuando se llena la cuadrícula
             if (photoIndex > 0 && (photoIndex - pageStartIndex) >= photosPerPage) {
                 addFooter();
-                doc.addPage('landscape'); // Nueva página también en horizontal
+                doc.addPage(orientation); // Todas las hojas en la misma orientación
                 yPos = await addHeader() + 4;
                 pageStartIndex = photoIndex;
             }
@@ -399,7 +449,7 @@ export class PDFReportService {
             const currentYPos = yPos + (row * rowPitch);
 
             try {
-                const imgData = await this.fetchImage(photo.url);
+                const imgData = photo.data || await this.fetchImage(photo.url);
 
                 if (!imgData) {
                     throw new Error('No se pudo obtener datos de la imagen');
