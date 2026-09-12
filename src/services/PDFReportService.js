@@ -513,8 +513,18 @@ export class PDFReportService {
                 return url;
             }
 
+            // Las fotos guardadas llevan el host con el que se subieron, y las
+            // de antes con http:// porque el backend detrás de Caddy no veía el
+            // https. Desde una página https eso es contenido mixto y el
+            // navegador lo bloquea, así que el PDF salía con recuadros de
+            // "Error al cargar imagen". /uploads lo sirve el mismo origen tanto
+            // en el VPS como en desarrollo, así que se pide relativo.
+            const fetchUrl = url.includes('/uploads/')
+                ? url.replace(/^https?:\/\/[^/]+/, '')
+                : url;
+
             // Si es una URL completa, hacer fetch
-            const response = await fetch(url, {
+            const response = await fetch(fetchUrl, {
                 mode: 'cors',
                 credentials: 'omit'
             });

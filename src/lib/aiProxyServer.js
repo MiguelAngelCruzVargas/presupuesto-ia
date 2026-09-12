@@ -21,6 +21,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+// Detrás de Caddy. Sin esto `req.protocol` vale "http" aunque el sitio sea
+// https, y la URL que se guarda de cada foto queda en http://: el navegador la
+// bloquea después como contenido mixto y el PDF sale con recuadros vacíos.
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use(cors());
 
@@ -286,6 +290,61 @@ const rateLimiter = (req, res, next) => {
     next();
 };
 
+/**
+ * Límite propio para las subidas de imagen.
+ *
+ * El limitador de la IA impone un enfriamiento de 2 s entre peticiones porque
+ * allí cada llamada cuesta créditos. Las fotos de un reporte se suben todas a
+ * la vez (Promise.all), así que con ese limitador la primera pasaba y el resto
+ * rebotaba con 429: cualquier reporte de dos o más fotos fallaba al guardar.
+ * Subir un archivo no gasta créditos; lo que hay que cuidar es el disco, y para
+ * eso basta un tope por usuario y día más una ráfaga generosa.
+ */
+const UPLOAD_LIMIT_CONFIG = {
+    dailyLimit: 600,          // imágenes por usuario y día
+    burstWindowMs: 60 * 1000,
+    burstLimit: 80            // un reporte largo cabe de una sentada
+};
+
+const uploadUsageMap = new Map();
+
+const uploadRateLimiter = (req, res, next) => {
+    const clave = req.usuario?.id
+        || req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+        || req.socket?.remoteAddress
+        || 'unknown';
+    const ahora = Date.now();
+
+    let uso = uploadUsageMap.get(clave);
+    if (!uso || ahora - uso.inicioDia > 24 * 60 * 60 * 1000) {
+        uso = { inicioDia: ahora, totalDia: 0, recientes: [] };
+        uploadUsageMap.set(clave, uso);
+    }
+
+    if (uso.totalDia >= UPLOAD_LIMIT_CONFIG.dailyLimit) {
+        return res.status(429).json({
+            error: `Llegaste al límite de ${UPLOAD_LIMIT_CONFIG.dailyLimit} imágenes por día.`,
+            retryAfter: 3600
+        });
+    }
+
+    uso.recientes = uso.recientes.filter(t => ahora - t < UPLOAD_LIMIT_CONFIG.burstWindowMs);
+    if (uso.recientes.length >= UPLOAD_LIMIT_CONFIG.burstLimit) {
+        const esperar = Math.ceil((UPLOAD_LIMIT_CONFIG.burstWindowMs - (ahora - uso.recientes[0])) / 1000);
+        return res.status(429).json({
+            error: `Vas muy rápido subiendo imágenes. Espera ${esperar}s e inténtalo de nuevo.`,
+            retryAfter: esperar
+        });
+    }
+
+    uso.recientes.push(ahora);
+    uso.totalDia++;
+
+    res.setHeader('X-Upload-Limit', UPLOAD_LIMIT_CONFIG.dailyLimit);
+    res.setHeader('X-Upload-Remaining', UPLOAD_LIMIT_CONFIG.dailyLimit - uso.totalDia);
+    next();
+};
+
 // --- FILE UPLOAD CONFIG ---
 // Ensure uploads directory exists
 const uploadDir = path.join(__dirname, '../../uploads');
@@ -325,7 +384,7 @@ const upload = multer({
     }
 });
 
-app.post('/api/upload', requireAuth, rateLimiter, upload.single('file'), (req, res) => {
+app.post('/api/upload', requireAuth, uploadRateLimiter, upload.single('file'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }

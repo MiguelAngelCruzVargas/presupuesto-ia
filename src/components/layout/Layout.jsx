@@ -10,7 +10,10 @@ import SupportChat from '../support/SupportChat';
 import RateLimitModal from '../ui/RateLimitModal';
 import { Menu } from 'lucide-react';
 
-const Layout = ({ children, title }) => {
+// `bare`: la pagina hija ya trae su propio encabezado de pantalla completa
+// (barra con "volver" y acciones). Sin esto se apilaban dos encabezados y se
+// sumaban dos paddings, que en celular se comia media pantalla.
+const Layout = ({ children, title, bare = false }) => {
     const { toast, setToast, rateLimitModal, closeRateLimitModal } = useProject();
     const { isOpen, closePricingModal } = usePricingModal();
     const { isCollapsed } = useSidebar();
@@ -46,8 +49,12 @@ const Layout = ({ children, title }) => {
 
             {/* pb-24: deja hueco para la burbuja flotante del chat, que si no
                 tapa lo último de la página (botones incluidos) */}
-            <main className="flex-1 overflow-y-auto scrollbar-hide p-2 sm:p-3 lg:p-2 pb-24 sm:pb-24 print:ml-0 print:p-0 print:pb-0 transition-all duration-300" style={{ marginLeft: `${sidebarWidth}` }}>
+            <main
+                className={`flex-1 overflow-y-auto scrollbar-hide print:ml-0 print:p-0 print:pb-0 transition-all duration-300 ${bare ? '' : 'p-2 sm:p-3 lg:p-2 pb-24 sm:pb-24'}`}
+                style={{ marginLeft: `${sidebarWidth}` }}
+            >
 
+                {!bare && (
                 <div className="flex justify-between items-center mb-8 print:hidden">
                     <div className="flex items-center gap-3">
                         {/* Hamburger Button for Mobile */}
@@ -74,6 +81,7 @@ const Layout = ({ children, title }) => {
                         </div>
                     </div>
                 </div>
+                )}
 
                 {children}
 

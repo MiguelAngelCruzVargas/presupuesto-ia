@@ -109,12 +109,12 @@ const App = () => {
                                                 {/* Photographic Report Routes */}
                                                 <Route path="/project/:projectId/report/new" element={
                                                     <ProtectedRoute requireAuth={true}>
-                                                        <Layout title="Nuevo Reporte Fotográfico"><PhotographicReportPage /></Layout>
+                                                        <Layout title="Nuevo Reporte Fotográfico" bare><PhotographicReportPage /></Layout>
                                                     </ProtectedRoute>
                                                 } />
                                                 <Route path="/project/:projectId/report/:logId/edit" element={
                                                     <ProtectedRoute requireAuth={true}>
-                                                        <Layout title="Editar Reporte Fotográfico"><PhotographicReportPage /></Layout>
+                                                        <Layout title="Editar Reporte Fotográfico" bare><PhotographicReportPage /></Layout>
                                                     </ProtectedRoute>
                                                 } />
 
@@ -155,7 +155,7 @@ const App = () => {
                                                 } />
                                                 <Route path="/reports/photographic/free" element={
                                                     <ProtectedRoute requireAuth={true}>
-                                                        <Layout title="Reporte Fotográfico"><PhotographicReportPage /></Layout>
+                                                        <Layout title="Reporte Fotográfico" bare><PhotographicReportPage /></Layout>
                                                     </ProtectedRoute>
                                                 } />
 

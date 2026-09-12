@@ -1,6 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Camera, Save, Plus, Trash2, Check, Upload, X, Image as ImageIcon, Images, LayoutGrid, Eye, FileText, ExternalLink, Loader2, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Camera, Save, Plus, Trash2, Check, Upload, X, Image as ImageIcon, Images, LayoutGrid, Eye, FileText, ExternalLink, Loader2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical } from 'lucide-react';
+import {
+    DndContext,
+    closestCenter,
+    PointerSensor,
+    KeyboardSensor,
+    useSensor,
+    useSensors
+} from '@dnd-kit/core';
+import {
+    SortableContext,
+    rectSortingStrategy,
+    sortableKeyboardCoordinates,
+    useSortable,
+    arrayMove
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import BitacoraService from '../services/BitacoraService';
 import ImageUploadService from '../services/ImageUploadService';
 import ProjectPersistenceService from '../services/ProjectPersistenceService';
@@ -14,8 +30,150 @@ import { SIGNATURE_SCHEMES, buildSignatureData, getSignatureScheme } from '../co
 // Texto que se guarda en el log: descripción del bloque + descripciones por foto
 const buildLogContent = (entry, conceptName) => {
     const baseContent = entry.description || `Reporte fotográfico: ${conceptName}`;
-    const photoCaptions = Array.isArray(entry.photoCaptions) ? entry.photoCaptions : [];
+    const photoCaptions = (entry.photos || []).map(photo => photo.caption || '');
     return baseContent + '\n\n<!--PHOTO_CAPTIONS:' + JSON.stringify(photoCaptions) + '-->';
+};
+
+// Cada foto es un objeto con identidad propia. Antes el bloque guardaba tres
+// listas en paralelo (archivos nuevos, urls ya subidas y descripciones) y el
+// orden de la foto era el orden en que se cargó: no había forma de moverlas.
+let photoSeq = 0;
+const makePhoto = (props = {}) => ({
+    id: `ph-${Date.now().toString(36)}-${photoSeq++}`,
+    url: '',          // lo que se muestra: blob: si está pendiente, url del servidor si ya se subió
+    file: null,       // File pendiente de subir
+    uploaded: false,  // true cuando `url` ya vive en el servidor
+    caption: '',
+    ...props
+});
+
+let blockSeq = 0;
+const makeBlock = (props = {}) => {
+    const blockId = `blk-${Date.now().toString(36)}-${blockSeq++}`;
+    return {
+        id: blockId,
+        itemId: 'block-' + blockId,
+        itemName: '',
+        itemCode: '',
+        photos: [],
+        description: '',
+        progress: 100,
+        isCompleted: true,
+        ...props
+    };
+};
+
+// Las fotos servidas desde /uploads se piden al mismo origen para no depender
+// del host con el que se guardaron.
+const resolvePhotoSrc = (url) =>
+    (typeof url === 'string' && url.includes('/uploads/') ? url.replace(/^https?:\/\/[^/]+/, '') : url);
+
+const PHOTO_FALLBACK = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23e2e8f0" width="100" height="100"/><text x="50" y="55" font-size="10" fill="%2364758b" text-anchor="middle" font-family="sans-serif">Sin imagen</text></svg>');
+
+const revokeIfBlob = (url) => {
+    if (typeof url === 'string' && url.startsWith('blob:')) {
+        ImageUploadService.revokePreviewUrl(url);
+    }
+};
+
+/**
+ * Una foto del bloque.
+ *
+ * Se puede reordenar de dos formas porque en obra se usa el celular:
+ * arrastrando desde el asa (funciona con dedo y con ratón) o con las flechas,
+ * que es lo único cómodo en una pantalla chica. Los controles van SIEMPRE
+ * visibles: antes el botón de borrar aparecía solo con `hover`, así que en
+ * celular era imposible quitar una foto.
+ */
+const SortablePhoto = ({ photo, index, total, onMove, onRemove, onCaptionChange }) => {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: photo.id });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 20 : undefined
+    };
+
+    const arrowClass = 'flex items-center justify-center w-8 h-8 rounded-lg border border-slate-300 text-slate-600 transition touch-manipulation disabled:opacity-30 disabled:cursor-not-allowed enabled:hover:bg-indigo-50 enabled:hover:text-indigo-600 enabled:hover:border-indigo-400';
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className={`relative rounded-xl ${isDragging ? 'opacity-80 ring-2 ring-indigo-500' : ''}`}
+        >
+            {/* object-contain y caja apaisada: se ve la foto tal como entrará al
+                PDF, sin recortarla a un cuadrado que engañaba sobre el encuadre */}
+            <div className="aspect-[10/7] rounded-lg overflow-hidden border-2 border-slate-300 bg-slate-100 flex items-center justify-center">
+                <img
+                    src={resolvePhotoSrc(photo.url)}
+                    className="w-full h-full object-contain"
+                    alt={`Foto ${index + 1}`}
+                    draggable={false}
+                    onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = PHOTO_FALLBACK;
+                    }}
+                />
+            </div>
+
+            <div className="mt-1.5 flex items-center gap-1">
+                <button
+                    type="button"
+                    onClick={() => onMove(index, index - 1)}
+                    disabled={index === 0}
+                    className={arrowClass}
+                    title="Mover antes"
+                    aria-label={`Mover la foto ${index + 1} antes`}
+                >
+                    <ChevronLeft size={16} />
+                </button>
+
+                {/* Asa de arrastre. touch-none solo aquí: el resto del bloque
+                    sigue desplazándose con el dedo con normalidad. */}
+                <button
+                    type="button"
+                    {...attributes}
+                    {...listeners}
+                    className="flex items-center gap-0.5 px-1.5 h-8 rounded-lg border border-slate-300 text-slate-500 bg-slate-50 cursor-grab active:cursor-grabbing touch-none select-none"
+                    title="Arrastrar para reordenar"
+                    aria-label={`Arrastrar la foto ${index + 1}`}
+                >
+                    <GripVertical size={14} />
+                    <span className="text-[11px] font-bold text-slate-600">{index + 1}</span>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => onMove(index, index + 1)}
+                    disabled={index === total - 1}
+                    className={arrowClass}
+                    title="Mover después"
+                    aria-label={`Mover la foto ${index + 1} después`}
+                >
+                    <ChevronRight size={16} />
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => onRemove(photo.id)}
+                    className="ml-auto flex items-center justify-center w-8 h-8 rounded-lg border border-slate-300 text-slate-400 hover:text-red-500 hover:border-red-300 hover:bg-red-50 transition touch-manipulation"
+                    title="Eliminar foto"
+                    aria-label={`Eliminar la foto ${index + 1}`}
+                >
+                    <Trash2 size={15} />
+                </button>
+            </div>
+
+            <input
+                type="text"
+                value={photo.caption || ''}
+                onChange={(e) => onCaptionChange(photo.id, e.target.value)}
+                placeholder={`Descripción foto ${index + 1}`}
+                className="w-full mt-1.5 text-xs font-medium text-slate-700 border-b border-slate-300 pb-1 focus:outline-none focus:border-indigo-500 bg-transparent"
+            />
+        </div>
+    );
 };
 
 const PhotographicReportPage = () => {
@@ -63,7 +221,7 @@ const PhotographicReportPage = () => {
     const [generatingPreview, setGeneratingPreview] = useState(false);
 
     // Carga masiva: se eligen muchas fotos de una vez y luego se decide cómo repartirlas
-    const [bulkPhotos, setBulkPhotos] = useState(null);      // { files, previewUrls, failed }
+    const [bulkPhotos, setBulkPhotos] = useState(null);      // { photos, failed }
     const [preparingBulk, setPreparingBulk] = useState(null); // { done, total }
     const [photosPerBlock, setPhotosPerBlock] = useState(1);
 
@@ -71,6 +229,13 @@ const PhotographicReportPage = () => {
     // son las fotos, y el membrete normalmente ya viene guardado del proyecto.
     const [showHeaderData, setShowHeaderData] = useState(
         () => typeof window === 'undefined' || window.innerWidth >= 768
+    );
+
+    // Arrastrar fotos: el asa lleva touch-none, asi que el mismo sensor sirve
+    // para raton y para dedo sin romper el desplazamiento de la pagina.
+    const dragSensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     );
 
     // Estados para campos editables de las firmas.
@@ -179,22 +344,20 @@ const PhotographicReportPage = () => {
 
                         // Concepto general y descripciones opcionales por foto (no se repite el concepto bajo cada foto en PDF)
                         const { cleanContent, photoCaptions: savedCaptions } = PDFReportService.parsePhotoReportContent(log.content || '');
-                        const numPhotos = (log.photos || []).length;
-                        const photoCaptions = Array.from({ length: numPhotos }, (_, i) => savedCaptions[i] ?? '');
-                        const entry = {
-                            id: Date.now(),
+                        const entry = makeBlock({
                             logId: log.id,
                             itemId: item?.id || log.task_id,
                             itemName: conceptName,
                             itemCode: item?.code || '',
-                            photos: [],
-                            previewUrls: log.photos || [],
-                            photoUrls: log.photos || [],
-                            photoCaptions,
+                            photos: (log.photos || []).map((url, i) => makePhoto({
+                                url,
+                                uploaded: true,
+                                caption: savedCaptions[i] ?? ''
+                            })),
                             description: cleanContent || log.content || '',
                             progress: log.progress_percentage || 100,
                             isCompleted: log.progress_percentage === 100
-                        };
+                        });
 
                         setEntries([entry]);
                     }
@@ -218,11 +381,7 @@ const PhotographicReportPage = () => {
     useEffect(() => {
         return () => {
             entriesRef.current.forEach(entry => {
-                (entry.previewUrls || []).forEach(url => {
-                    if (typeof url === 'string' && url.startsWith('blob:')) {
-                        ImageUploadService.revokePreviewUrl(url);
-                    }
-                });
+                (entry.photos || []).forEach(photo => revokeIfBlob(photo.url));
             });
         };
     }, []);
@@ -235,46 +394,71 @@ const PhotographicReportPage = () => {
     }, [pdfPreviewUrl]);
 
     const handleAddBlock = () => {
-        setEntries([...entries, {
-            id: Date.now(),
-            itemId: 'block-' + Date.now(),
-            itemName: '',
-            itemCode: '',
-            photos: [],
-            previewUrls: [],
-            photoUrls: [],
-            photoCaptions: [],
-            description: '',
-            progress: 100,
-            isCompleted: true
-        }]);
+        setEntries(prev => [...prev, makeBlock()]);
+    };
+
+    // Mover un bloque completo: el PDF sale en este mismo orden
+    const moveEntry = (from, to) => {
+        setEntries(prev => (to < 0 || to >= prev.length ? prev : arrayMove(prev, from, to)));
     };
 
     const handleRemoveEntry = (entryId) => {
         const entry = entries.find(e => e.id === entryId);
-        if (entry) {
-            entry.previewUrls.forEach(url => {
-                if (url.startsWith('blob:')) {
-                    ImageUploadService.revokePreviewUrl(url);
-                }
-            });
-        }
+        (entry?.photos || []).forEach(photo => revokeIfBlob(photo.url));
         setEntries(entries.filter(e => e.id !== entryId));
+    };
+
+    // --- Fotos de un bloque: siempre una sola lista ordenada ---
+    const updatePhotos = (entryId, updater) => {
+        setEntries(prev => prev.map(entry => (
+            entry.id === entryId ? { ...entry, photos: updater(entry.photos || []) } : entry
+        )));
+    };
+
+    const movePhoto = (entryId, from, to) => {
+        updatePhotos(entryId, photos => (to < 0 || to >= photos.length ? photos : arrayMove(photos, from, to)));
+    };
+
+    const removePhoto = (entryId, photoId) => {
+        updatePhotos(entryId, photos => {
+            const photo = photos.find(item => item.id === photoId);
+            if (photo) revokeIfBlob(photo.url);
+            return photos.filter(item => item.id !== photoId);
+        });
+    };
+
+    const setPhotoCaption = (entryId, photoId, caption) => {
+        updatePhotos(entryId, photos => photos.map(item => (
+            item.id === photoId ? { ...item, caption } : item
+        )));
+    };
+
+    const handlePhotoDragEnd = (entryId, event) => {
+        const { active, over } = event;
+        if (!over || active.id === over.id) return;
+        updatePhotos(entryId, photos => {
+            const from = photos.findIndex(item => item.id === active.id);
+            const to = photos.findIndex(item => item.id === over.id);
+            return (from === -1 || to === -1) ? photos : arrayMove(photos, from, to);
+        });
     };
 
     const handleFileChange = (entryId, e) => {
         const selectedFiles = Array.from(e.target.files || []);
+        // Sin esto, volver a elegir la misma foto no disparaba el change
+        e.target.value = '';
         if (selectedFiles.length === 0) return;
 
         (async () => {
-            const validFiles = [];
-            const newPreviewUrls = [];
+            const newPhotos = [];
 
             for (const file of selectedFiles) {
                 try {
                     const optimized = await ImageUploadService.prepareReportPhoto(file);
-                    validFiles.push(optimized.file);
-                    newPreviewUrls.push(ImageUploadService.createPreviewUrl(optimized.file));
+                    newPhotos.push(makePhoto({
+                        url: ImageUploadService.createPreviewUrl(optimized.file),
+                        file: optimized.file
+                    }));
                 } catch (error) {
                     setAlertModal({
                         isOpen: true,
@@ -285,19 +469,8 @@ const PhotographicReportPage = () => {
                 }
             }
 
-            setEntries(currentEntries => currentEntries.map(entry => {
-                if (entry.id === entryId) {
-                    const currentCaptions = entry.photoCaptions || [];
-                    const newCaptions = new Array(newPreviewUrls.length).fill('');
-                    return {
-                        ...entry,
-                        photos: [...entry.photos, ...validFiles],
-                        previewUrls: [...entry.previewUrls, ...newPreviewUrls],
-                        photoCaptions: [...currentCaptions, ...newCaptions]
-                    };
-                }
-                return entry;
-            }));
+            if (newPhotos.length === 0) return;
+            updatePhotos(entryId, photos => [...photos, ...newPhotos]);
         })();
     };
 
@@ -308,15 +481,16 @@ const PhotographicReportPage = () => {
         if (selectedFiles.length === 0) return;
 
         setPreparingBulk({ done: 0, total: selectedFiles.length });
-        const files = [];
-        const previewUrls = [];
+        const photos = [];
         const failed = [];
 
         for (const file of selectedFiles) {
             try {
                 const optimized = await ImageUploadService.prepareReportPhoto(file);
-                files.push(optimized.file);
-                previewUrls.push(ImageUploadService.createPreviewUrl(optimized.file));
+                photos.push(makePhoto({
+                    url: ImageUploadService.createPreviewUrl(optimized.file),
+                    file: optimized.file
+                }));
             } catch (error) {
                 console.error('[Reporte] Error preparando foto:', file.name, error);
                 failed.push(file.name);
@@ -326,7 +500,7 @@ const PhotographicReportPage = () => {
 
         setPreparingBulk(null);
 
-        if (files.length === 0) {
+        if (photos.length === 0) {
             setAlertModal({
                 isOpen: true,
                 title: 'No se pudo usar ninguna foto',
@@ -336,34 +510,23 @@ const PhotographicReportPage = () => {
             return;
         }
 
-        setPhotosPerBlock(1);
-        setBulkPhotos({ files, previewUrls, failed });
+        // Por defecto todas caen en un solo bloque. Repartir una por bloque
+        // dejaba una torre de tarjetas imposible de revisar en celular, y el
+        // concepto general del encabezado ya describe el reporte completo.
+        setPhotosPerBlock(photos.length);
+        setBulkPhotos({ photos, failed });
     };
 
     // Reparte las fotos cargadas en bloques de "perBlock" fotos cada uno
     const applyBulkPhotos = (perBlock) => {
         if (!bulkPhotos) return;
 
-        const size = Math.max(1, Math.min(perBlock, bulkPhotos.files.length));
-        const baseId = Date.now();
+        const total = bulkPhotos.photos.length;
+        const size = Math.max(1, Math.min(perBlock, total));
         const newEntries = [];
 
-        for (let i = 0; i < bulkPhotos.files.length; i += size) {
-            const blockId = baseId + i;
-            const chunkFiles = bulkPhotos.files.slice(i, i + size);
-            newEntries.push({
-                id: blockId,
-                itemId: 'block-' + blockId,
-                itemName: '',
-                itemCode: '',
-                photos: chunkFiles,
-                previewUrls: bulkPhotos.previewUrls.slice(i, i + size),
-                photoUrls: [],
-                photoCaptions: chunkFiles.map(() => ''),
-                description: '',
-                progress: 100,
-                isCompleted: true
-            });
+        for (let i = 0; i < total; i += size) {
+            newEntries.push(makeBlock({ photos: bulkPhotos.photos.slice(i, i + size) }));
         }
 
         setEntries(prev => [...prev, ...newEntries]);
@@ -373,7 +536,7 @@ const PhotographicReportPage = () => {
             setAlertModal({
                 isOpen: true,
                 title: 'Algunas fotos no se pudieron usar',
-                message: `Se agregaron ${bulkPhotos.files.length} fotos. No se pudieron leer: ${bulkPhotos.failed.join(', ')}`,
+                message: `Se agregaron ${total} fotos. No se pudieron leer: ${bulkPhotos.failed.join(', ')}`,
                 type: 'warning'
             });
         }
@@ -381,7 +544,7 @@ const PhotographicReportPage = () => {
 
     const cancelBulkPhotos = () => {
         if (!bulkPhotos) return;
-        bulkPhotos.previewUrls.forEach(url => ImageUploadService.revokePreviewUrl(url));
+        bulkPhotos.photos.forEach(photo => revokeIfBlob(photo.url));
         setBulkPhotos(null);
     };
 
@@ -479,7 +642,7 @@ const PhotographicReportPage = () => {
                     id: `preview-${index}`,
                     subject: `Reporte Fotográfico: ${reportTitle}`,
                     content: buildLogContent(entry, conceptName),
-                    photos: entry.previewUrls || [],
+                    photos: (entry.photos || []).map(photo => photo.url),
                     progress_percentage: entry.isCompleted ? 100 : entry.progress,
                     log_date: reportDate
                 };
@@ -609,17 +772,22 @@ const PhotographicReportPage = () => {
             }
 
             for (const entry of entries) {
-                let newPhotoUrls = [];
-                if (entry.photos.length > 0) {
-                    newPhotoUrls = await ImageUploadService.uploadMultipleImages(
-                        entry.photos,
+                const pending = (entry.photos || []).filter(photo => !photo.uploaded && photo.file);
+                let uploadedUrls = [];
+                if (pending.length > 0) {
+                    uploadedUrls = await ImageUploadService.uploadMultipleImages(
+                        pending.map(photo => photo.file),
                         targetProjectId,
                         'report-' + entry.itemId
                     );
                 }
 
-                const existingUrls = entry.photoUrls || [];
-                const allPhotoUrls = [...existingUrls, ...newPhotoUrls];
+                // Las recién subidas vuelven a su hueco en vez de irse todas al
+                // final: el PDF respeta el orden que el usuario dejó en pantalla.
+                let uploadedIndex = 0;
+                const allPhotoUrls = (entry.photos || [])
+                    .map(photo => (photo.uploaded ? photo.url : uploadedUrls[uploadedIndex++]))
+                    .filter(Boolean);
                 const logDate = new Date(reportDate + 'T12:00:00').toISOString();
                 // Nombre del concepto y título del reporte (no mostrar ids internos tipo "block-...")
                 // Las descripciones por foto se guardan dentro del contenido y no se repiten bajo cada foto en el PDF
@@ -770,7 +938,7 @@ const PhotographicReportPage = () => {
             </div>
 
             {/* Main Content */}
-            <div className="w-full max-w-[1600px] mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
+            <div className="w-full max-w-[1600px] mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-28">
 
                 {/* Encabezado del Reporte - membrete + datos de proyecto */}
                 <div className="bg-white border-2 border-slate-300 rounded-xl sm:rounded-2xl p-4 sm:p-6 mb-4 sm:mb-6 shadow-md">
@@ -1044,95 +1212,94 @@ const PhotographicReportPage = () => {
                                 {entries.map((entry, index) => (
                                     <div key={entry.id} className="bg-white rounded-xl border-2 border-slate-300 overflow-hidden shadow-sm">
                                         <div className="p-4 sm:p-6">
-                                            <div className="flex items-center justify-between gap-3 mb-4">
-                                                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Bloque {index + 1}</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleRemoveEntry(entry.id)}
-                                                    className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 transition rounded-xl touch-manipulation"
-                                                    title="Eliminar bloque"
-                                                >
-                                                    <Trash2 size={20} />
-                                                </button>
+                                            <div className="flex items-center justify-between gap-2 mb-4">
+                                                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                                                    Bloque {index + 1} de {entries.length}
+                                                </span>
+                                                <div className="flex items-center gap-1">
+                                                    {entries.length > 1 && (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => moveEntry(index, index - 1)}
+                                                                disabled={index === 0}
+                                                                className="p-2.5 rounded-xl text-slate-500 transition touch-manipulation disabled:opacity-30 disabled:cursor-not-allowed enabled:hover:text-indigo-600 enabled:hover:bg-indigo-50"
+                                                                title="Subir el bloque"
+                                                                aria-label={`Subir el bloque ${index + 1}`}
+                                                            >
+                                                                <ChevronUp size={20} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => moveEntry(index, index + 1)}
+                                                                disabled={index === entries.length - 1}
+                                                                className="p-2.5 rounded-xl text-slate-500 transition touch-manipulation disabled:opacity-30 disabled:cursor-not-allowed enabled:hover:text-indigo-600 enabled:hover:bg-indigo-50"
+                                                                title="Bajar el bloque"
+                                                                aria-label={`Bajar el bloque ${index + 1}`}
+                                                            >
+                                                                <ChevronDown size={20} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveEntry(entry.id)}
+                                                        className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 transition rounded-xl touch-manipulation"
+                                                        title="Eliminar bloque"
+                                                    >
+                                                        <Trash2 size={20} />
+                                                    </button>
+                                                </div>
                                             </div>
 
-                                            {/* Fotos */}
+                                            {/* Fotos: el orden de esta rejilla es el orden del PDF */}
                                             <div className="mb-4">
-                                                <label className="block text-xs font-bold text-slate-700 uppercase mb-2 tracking-wider">Evidencia fotográfica</label>
-                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                                    {entry.previewUrls.map((url, idx) => (
-                                                        <div key={idx} className="relative group">
-                                                            <div className="aspect-square rounded-lg overflow-hidden border-2 border-slate-300 bg-slate-100">
-                                                                <img
-                                                                    src={typeof url === 'string' && url.includes('/uploads/') ? url.replace(/^https?:\/\/[^/]+/, '') : url}
-                                                                    className="w-full h-full object-cover"
-                                                                    alt={`Foto ${idx + 1}`}
-                                                                    onError={(e) => {
-                                                                        e.target.onerror = null;
-                                                                        e.target.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23e2e8f0" width="100" height="100"/><text x="50" y="55" font-size="10" fill="%2364758b" text-anchor="middle" font-family="sans-serif">Sin imagen</text></svg>');
-                                                                    }}
-                                                                />
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        // Si es un blob URL, liberar memoria del navegador
-                                                                        if (typeof url === 'string' && url.startsWith('blob:')) {
-                                                                            ImageUploadService.revokePreviewUrl(url);
-                                                                        }
-                                                                        const newPreviewUrls = entry.previewUrls.filter((_, i) => i !== idx);
-                                                                        const existingCount = (entry.photoUrls || []).length;
-                                                                        const newPhotoUrls = (entry.photoUrls || []).filter((_, i) => i !== idx);
-                                                                        let newPhotos = entry.photos || [];
-                                                                        // Para fotos nuevas (después de las existentes), también eliminar el File correspondiente
-                                                                        if (idx >= existingCount) {
-                                                                            const newIndex = idx - existingCount;
-                                                                            newPhotos = (entry.photos || []).filter((_, i) => i !== newIndex);
-                                                                        }
-                                                                        const newCaptions = (entry.photoCaptions || []).filter((_, i) => i !== idx);
-                                                                        updateEntryFields(entry.id, {
-                                                                            previewUrls: newPreviewUrls,
-                                                                            photoUrls: newPhotoUrls,
-                                                                            photos: newPhotos,
-                                                                            photoCaptions: newCaptions
-                                                                        });
-                                                                    }}
-                                                                    className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition shadow-lg hover:bg-red-600 z-10"
-                                                                    title="Eliminar foto"
-                                                                >
-                                                                    <X size={14} />
-                                                                </button>
-                                                            </div>
-                                                            <input
-                                                                type="text"
-                                                                value={entry.photoCaptions?.[idx] || ''}
-                                                                onChange={(e) => {
-                                                                    const newCaptions = [...(entry.photoCaptions || [])];
-                                                                    newCaptions[idx] = e.target.value;
-                                                                    updateEntry(entry.id, 'photoCaptions', newCaptions);
-                                                                }}
-                                                                placeholder={`Descripción foto ${idx + 1}`}
-                                                                className="w-full mt-1.5 text-xs font-medium text-slate-700 border-b border-slate-300 pb-1 focus:outline-none focus:border-indigo-500 bg-transparent"
-                                                            />
-                                                        </div>
-                                                    ))}
-                                                    {/* Cámara: en celular abre la cámara directo; en escritorio no se muestra */}
-                                                    <label className="sm:hidden aspect-square border-2 border-dashed border-indigo-400 rounded-lg flex flex-col items-center justify-center cursor-pointer bg-indigo-50/50 hover:bg-indigo-50 transition text-indigo-600 touch-manipulation">
-                                                        <Camera size={28} className="mb-1" />
-                                                        <span className="text-xs font-bold">Tomar foto</span>
-                                                        <input
-                                                            type="file"
-                                                            accept="image/*"
-                                                            capture="environment"
-                                                            className="hidden"
-                                                            onChange={(e) => handleFileChange(entry.id, e)}
-                                                        />
-                                                    </label>
-                                                    <label className="aspect-square border-2 border-dashed border-slate-400 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-indigo-50 hover:border-indigo-500 transition text-slate-500 hover:text-indigo-600 touch-manipulation">
-                                                        <Upload size={28} className="mb-1" />
-                                                        <span className="text-xs font-bold">Subir</span>
-                                                        <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileChange(entry.id, e)} />
-                                                    </label>
+                                                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-2">
+                                                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">Evidencia fotográfica</label>
+                                                    {entry.photos.length > 1 && (
+                                                        <span className="text-[11px] text-slate-500">
+                                                            Usa las flechas o arrastra el asa para acomodarlas
+                                                        </span>
+                                                    )}
                                                 </div>
+                                                <DndContext
+                                                    sensors={dragSensors}
+                                                    collisionDetection={closestCenter}
+                                                    onDragEnd={(event) => handlePhotoDragEnd(entry.id, event)}
+                                                >
+                                                    <SortableContext items={entry.photos.map(photo => photo.id)} strategy={rectSortingStrategy}>
+                                                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                                                            {entry.photos.map((photo, idx) => (
+                                                                <SortablePhoto
+                                                                    key={photo.id}
+                                                                    photo={photo}
+                                                                    index={idx}
+                                                                    total={entry.photos.length}
+                                                                    onMove={(from, to) => movePhoto(entry.id, from, to)}
+                                                                    onRemove={(photoId) => removePhoto(entry.id, photoId)}
+                                                                    onCaptionChange={(photoId, caption) => setPhotoCaption(entry.id, photoId, caption)}
+                                                                />
+                                                            ))}
+                                                            {/* Cámara: en celular abre la cámara directo; en escritorio no se muestra */}
+                                                            <label className="sm:hidden aspect-[10/7] border-2 border-dashed border-indigo-400 rounded-lg flex flex-col items-center justify-center cursor-pointer bg-indigo-50/50 hover:bg-indigo-50 transition text-indigo-600 touch-manipulation">
+                                                                <Camera size={26} className="mb-1" />
+                                                                <span className="text-xs font-bold">Tomar foto</span>
+                                                                <input
+                                                                    type="file"
+                                                                    accept="image/*"
+                                                                    capture="environment"
+                                                                    className="hidden"
+                                                                    onChange={(e) => handleFileChange(entry.id, e)}
+                                                                />
+                                                            </label>
+                                                            <label className="aspect-[10/7] border-2 border-dashed border-slate-400 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-indigo-50 hover:border-indigo-500 transition text-slate-500 hover:text-indigo-600 touch-manipulation">
+                                                                <Upload size={26} className="mb-1" />
+                                                                <span className="text-xs font-bold">Subir</span>
+                                                                <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileChange(entry.id, e)} />
+                                                            </label>
+                                                        </div>
+                                                    </SortableContext>
+                                                </DndContext>
                                             </div>
 
                                             {/* Concepto debajo de las fotos (input, no select) */}
@@ -1322,7 +1489,7 @@ const PhotographicReportPage = () => {
                                 </div>
                                 <div className="min-w-0">
                                     <h3 className="font-bold text-slate-900">
-                                        {bulkPhotos.files.length} fotos listas
+                                        {bulkPhotos.photos.length} fotos listas
                                     </h3>
                                     <p className="text-sm text-slate-500">
                                         ¿Cómo las acomodo? Cada bloque lleva su propio concepto.
@@ -1332,17 +1499,17 @@ const PhotographicReportPage = () => {
 
                             {/* Miniaturas de lo que se cargó */}
                             <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
-                                {bulkPhotos.previewUrls.slice(0, 12).map((url, idx) => (
+                                {bulkPhotos.photos.slice(0, 12).map((photo, idx) => (
                                     <img
-                                        key={idx}
-                                        src={url}
+                                        key={photo.id}
+                                        src={photo.url}
                                         alt={`Foto ${idx + 1}`}
                                         className="w-16 h-16 shrink-0 rounded-lg object-cover border border-slate-200"
                                     />
                                 ))}
-                                {bulkPhotos.previewUrls.length > 12 && (
+                                {bulkPhotos.photos.length > 12 && (
                                     <div className="w-16 h-16 shrink-0 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center text-xs font-bold text-slate-500">
-                                        +{bulkPhotos.previewUrls.length - 12}
+                                        +{bulkPhotos.photos.length - 12}
                                     </div>
                                 )}
                             </div>
@@ -1364,8 +1531,8 @@ const PhotographicReportPage = () => {
                                 ))}
                                 <button
                                     type="button"
-                                    onClick={() => setPhotosPerBlock(bulkPhotos.files.length)}
-                                    className={`px-4 py-2.5 text-sm font-bold rounded-xl border-2 transition min-h-[42px] touch-manipulation ${photosPerBlock === bulkPhotos.files.length && bulkPhotos.files.length > 1
+                                    onClick={() => setPhotosPerBlock(bulkPhotos.photos.length)}
+                                    className={`px-4 py-2.5 text-sm font-bold rounded-xl border-2 transition min-h-[42px] touch-manipulation ${photosPerBlock === bulkPhotos.photos.length && bulkPhotos.photos.length > 1
                                         ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
                                         : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
                                 >
@@ -1376,7 +1543,7 @@ const PhotographicReportPage = () => {
                             <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 mb-5">
                                 Se crearán{' '}
                                 <span className="font-bold text-slate-800">
-                                    {Math.ceil(bulkPhotos.files.length / Math.max(1, photosPerBlock))} bloques
+                                    {Math.ceil(bulkPhotos.photos.length / Math.max(1, photosPerBlock))} bloques
                                 </span>{' '}
                                 con {photosPerBlock} foto{photosPerBlock === 1 ? '' : 's'} cada uno.
                             </p>
