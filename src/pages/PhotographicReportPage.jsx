@@ -102,12 +102,13 @@ const SortablePhoto = ({ photo, index, total, onMove, onRemove, onCaptionChange 
             style={style}
             className={`relative rounded-xl ${isDragging ? 'opacity-80 ring-2 ring-indigo-500' : ''}`}
         >
-            {/* object-contain y caja apaisada: se ve la foto tal como entrará al
-                PDF, sin recortarla a un cuadrado que engañaba sobre el encuadre */}
-            <div className="aspect-[10/7] rounded-lg overflow-hidden border-2 border-slate-300 bg-slate-100 flex items-center justify-center">
+            {/* La caja sigue la forma de la foto. Con una caja apaisada fija,
+                una foto vertical (lo normal al disparar con el teléfono) salía
+                como una tira delgada entre dos franjas blancas enormes. */}
+            <div className="rounded-lg overflow-hidden border-2 border-slate-300 bg-slate-100 flex items-center justify-center min-h-[96px]">
                 <img
                     src={resolvePhotoSrc(photo.url)}
-                    className="w-full h-full object-contain"
+                    className="w-full h-auto max-h-[300px] object-contain"
                     alt={`Foto ${index + 1}`}
                     draggable={false}
                     onError={(e) => {
@@ -507,6 +508,34 @@ const PhotographicReportPage = () => {
                 message: 'Revisa que sean imágenes JPG, PNG o WEBP de menos de 25 MB.',
                 type: 'error'
             });
+            return;
+        }
+
+        const avisarFallidas = () => {
+            if (failed.length === 0) return;
+            setAlertModal({
+                isOpen: true,
+                title: 'Algunas fotos no se pudieron usar',
+                message: `No se pudieron leer: ${failed.join(', ')}`,
+                type: 'warning'
+            });
+        };
+
+        // Una sola foto no necesita preguntar cómo repartirla: en obra se
+        // dispara foto a foto, y con el diálogo cada disparo terminaba en su
+        // propio bloque (de ahí los "BLOQUE 5 DE 7" con una sola foto dentro).
+        // Se añade al último bloque, que es donde se está trabajando.
+        if (photos.length === 1) {
+            setEntries(prev => {
+                if (prev.length === 0) return [makeBlock({ photos })];
+                const ultimo = prev.length - 1;
+                return prev.map((entry, i) => (
+                    i === ultimo
+                        ? { ...entry, photos: [...(entry.photos || []), ...photos] }
+                        : entry
+                ));
+            });
+            avisarFallidas();
             return;
         }
 
@@ -1268,7 +1297,7 @@ const PhotographicReportPage = () => {
                                                     onDragEnd={(event) => handlePhotoDragEnd(entry.id, event)}
                                                 >
                                                     <SortableContext items={entry.photos.map(photo => photo.id)} strategy={rectSortingStrategy}>
-                                                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                                                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
                                                             {entry.photos.map((photo, idx) => (
                                                                 <SortablePhoto
                                                                     key={photo.id}
