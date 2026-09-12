@@ -25,6 +25,49 @@ export class PDFReportService {
         }
     };
 
+    /** Medidas de la hoja A4 en mm, por orientación. */
+    static PHOTO_PAGE_SIZES = {
+        portrait: { width: 210, height: 297 },
+        landscape: { width: 297, height: 210 }
+    };
+
+    /** Geometría de la cuadrícula, compartida con el editor. */
+    static PHOTO_GRID_METRICS = {
+        margin: 15,
+        gapX: 6,
+        rowGap: 4,
+        captionHeight: 9,
+        footerReserve: 34,   // hueco de las firmas
+        headerEstimate: 62   // membrete + título + tabla de datos
+    };
+
+    /**
+     * Proporción (ancho/alto) del recuadro que le tocará a cada foto.
+     *
+     * La usa el editor para dibujar las miniaturas con la forma que van a
+     * tener impresas, de modo que todas midan lo mismo en pantalla en vez de
+     * bailar según la foto. Aquí el alto del encabezado es una estimación;
+     * al construir el PDF se usa el alto real, así que la verdad exacta la
+     * sigue dando la vista previa.
+     */
+    static estimatePhotoCellAspect(medianAspect = 4 / 3, gridCols = 3, orientation = 'landscape') {
+        const page = this.PHOTO_PAGE_SIZES[orientation] || this.PHOTO_PAGE_SIZES.landscape;
+        const m = this.PHOTO_GRID_METRICS;
+        const cols = Math.min(4, Math.max(2, Number(gridCols) || 3));
+        const presets = this.PHOTO_GRID_PRESETS[orientation] || this.PHOTO_GRID_PRESETS.landscape;
+        const rows = (presets[cols] || { rows: 2 }).rows;
+
+        const photoWidth = (page.width - m.margin * 2 - m.gapX * (cols - 1)) / cols;
+        const availableHeight = (page.height - m.footerReserve) - (m.margin + m.headerEstimate);
+        const idealHeight = photoWidth / (medianAspect || 4 / 3);
+        const photoHeight = Math.max(
+            20,
+            Math.min(idealHeight, (availableHeight - m.rowGap * (rows - 1)) / rows - m.captionHeight)
+        );
+
+        return photoWidth / photoHeight;
+    }
+
     /**
      * Carga una imagen en un elemento <img> para poder medirla y redibujarla.
      */

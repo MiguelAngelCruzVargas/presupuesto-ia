@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Camera, Save, Plus, Trash2, Check, Upload, X, Image as ImageIcon, Images, LayoutGrid, Eye, FileText, ExternalLink, Loader2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical } from 'lucide-react';
 import {
@@ -70,6 +70,14 @@ const resolvePhotoSrc = (url) =>
 
 const PHOTO_FALLBACK = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect fill="%23e2e8f0" width="100" height="100"/><text x="50" y="55" font-size="10" fill="%2364758b" text-anchor="middle" font-family="sans-serif">Sin imagen</text></svg>');
 
+// Mediana y no promedio, igual que en el PDF: una sola panorámica entre
+// muchas verticales no debe decidir la forma de todas las miniaturas.
+const medianOf = (values, fallback) => {
+    if (!values.length) return fallback;
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+};
+
 const revokeIfBlob = (url) => {
     if (typeof url === 'string' && url.startsWith('blob:')) {
         ImageUploadService.revokePreviewUrl(url);
@@ -85,7 +93,7 @@ const revokeIfBlob = (url) => {
  * visibles: antes el botón de borrar aparecía solo con `hover`, así que en
  * celular era imposible quitar una foto.
  */
-const SortablePhoto = ({ photo, index, total, onMove, onRemove, onCaptionChange }) => {
+const SortablePhoto = ({ photo, index, total, cellAspect, onMove, onRemove, onCaptionChange, onMeasure }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: photo.id });
 
     const style = {
@@ -102,15 +110,23 @@ const SortablePhoto = ({ photo, index, total, onMove, onRemove, onCaptionChange 
             style={style}
             className={`relative rounded-xl ${isDragging ? 'opacity-80 ring-2 ring-indigo-500' : ''}`}
         >
-            {/* La caja sigue la forma de la foto. Con una caja apaisada fija,
-                una foto vertical (lo normal al disparar con el teléfono) salía
-                como una tira delgada entre dos franjas blancas enormes. */}
-            <div className="rounded-lg overflow-hidden border-2 border-slate-300 bg-slate-100 flex items-center justify-center min-h-[96px]">
+            {/* Todas las miniaturas comparten el recuadro que les tocará en el
+                PDF. Dejarlas crecer segun cada foto las ponía a bailar de
+                altura; con una caja apaisada fija, las verticales salían como
+                una tira entre dos franjas. */}
+            <div
+                className="rounded-lg overflow-hidden border-2 border-slate-300 bg-slate-100 flex items-center justify-center"
+                style={{ aspectRatio: String(cellAspect) }}
+            >
                 <img
                     src={resolvePhotoSrc(photo.url)}
-                    className="w-full h-auto max-h-[300px] object-contain"
+                    className="w-full h-full object-contain"
                     alt={`Foto ${index + 1}`}
                     draggable={false}
+                    onLoad={(e) => {
+                        const { naturalWidth: w, naturalHeight: h } = e.target;
+                        if (w > 0 && h > 0) onMeasure(photo.id, w / h);
+                    }}
                     onError={(e) => {
                         e.target.onerror = null;
                         e.target.src = PHOTO_FALLBACK;
@@ -232,6 +248,13 @@ const PhotographicReportPage = () => {
     const [showHeaderData, setShowHeaderData] = useState(
         () => typeof window === 'undefined' || window.innerWidth >= 768
     );
+
+    // Proporción real de cada foto, medida al pintarla. Vive aparte de
+    // `entries` para que medir una no vuelva a dibujar todos los bloques.
+    const [photoAspects, setPhotoAspects] = useState({});
+    const registerPhotoAspect = useCallback((photoId, aspect) => {
+        setPhotoAspects(prev => (prev[photoId] ? prev : { ...prev, [photoId]: aspect }));
+    }, []);
 
     // Arrastrar fotos: el asa lleva touch-none, asi que el mismo sensor sirve
     // para raton y para dedo sin romper el desplazamiento de la pagina.
@@ -616,6 +639,20 @@ const PhotographicReportPage = () => {
             entry.id === entryId ? { ...entry, ...updates } : entry
         ));
     };
+
+    // Forma del recuadro de cada foto: la misma cuenta que hace el PDF, para
+    // que la miniatura enseñe el encuadre que va a salir impreso.
+    const medianPhotoAspect = useMemo(
+        () => medianOf(Object.values(photoAspects), 4 / 3),
+        [photoAspects]
+    );
+    const pdfOrientation = pdfLayout.pageOrientation === 'auto'
+        ? (medianPhotoAspect < 1 ? 'portrait' : 'landscape')
+        : pdfLayout.pageOrientation;
+    const photoCellAspect = useMemo(
+        () => PDFReportService.estimatePhotoCellAspect(medianPhotoAspect, pdfLayout.gridCols, pdfOrientation),
+        [medianPhotoAspect, pdfLayout.gridCols, pdfOrientation]
+    );
 
     // Datos del membrete/diseño que consume el PDF, tomados de lo que hay en pantalla
     const buildProjectInfoForPdf = () => {
@@ -1337,13 +1374,18 @@ const PhotographicReportPage = () => {
                                                                     photo={photo}
                                                                     index={idx}
                                                                     total={entry.photos.length}
+                                                                    cellAspect={photoCellAspect}
                                                                     onMove={(from, to) => movePhoto(entry.id, from, to)}
                                                                     onRemove={(photoId) => removePhoto(entry.id, photoId)}
                                                                     onCaptionChange={(photoId, caption) => setPhotoCaption(entry.id, photoId, caption)}
+                                                                    onMeasure={registerPhotoAspect}
                                                                 />
                                                             ))}
                                                             {/* Cámara: en celular abre la cámara directo; en escritorio no se muestra */}
-                                                            <label className="sm:hidden aspect-[10/7] border-2 border-dashed border-indigo-400 rounded-lg flex flex-col items-center justify-center cursor-pointer bg-indigo-50/50 hover:bg-indigo-50 transition text-indigo-600 touch-manipulation">
+                                                            <label
+                                                                style={{ aspectRatio: String(photoCellAspect) }}
+                                                                className="sm:hidden border-2 border-dashed border-indigo-400 rounded-lg flex flex-col items-center justify-center cursor-pointer bg-indigo-50/50 hover:bg-indigo-50 transition text-indigo-600 touch-manipulation"
+                                                            >
                                                                 <Camera size={26} className="mb-1" />
                                                                 <span className="text-xs font-bold">Tomar foto</span>
                                                                 <input
@@ -1354,7 +1396,10 @@ const PhotographicReportPage = () => {
                                                                     onChange={(e) => handleFileChange(entry.id, e)}
                                                                 />
                                                             </label>
-                                                            <label className="aspect-[10/7] border-2 border-dashed border-slate-400 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-indigo-50 hover:border-indigo-500 transition text-slate-500 hover:text-indigo-600 touch-manipulation">
+                                                            <label
+                                                                style={{ aspectRatio: String(photoCellAspect) }}
+                                                                className="border-2 border-dashed border-slate-400 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-indigo-50 hover:border-indigo-500 transition text-slate-500 hover:text-indigo-600 touch-manipulation"
+                                                            >
                                                                 <Upload size={26} className="mb-1" />
                                                                 <span className="text-xs font-bold">Subir</span>
                                                                 <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileChange(entry.id, e)} />
