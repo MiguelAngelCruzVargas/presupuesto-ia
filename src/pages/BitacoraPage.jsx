@@ -51,9 +51,26 @@ const BitacoraPage = () => {
             setLogs(logsData);
             setProjectFullData(projectData);
 
-            // Si no hay cronograma, por defecto ir a la pestaña de bitácora
-            if (!scheduleData || (!scheduleData.tasks && !scheduleData.phases)) {
-                setActiveTab('bitacora');
+            // La fila de project_schedules guarda el cronograma DENTRO de
+            // `tasks`, que es un objeto { phases, tasks }. Preguntar por
+            // `scheduleData.tasks` a secas daba siempre "sí hay cronograma"
+            // aunque viniera vacío, así que un reporte libre abría en la
+            // pestaña de cronograma, sin fases y sin nada que editar.
+            const cronograma = scheduleData?.tasks || scheduleData;
+            const hayCronograma =
+                (cronograma?.phases?.length || 0) > 0 ||
+                (cronograma?.tasks?.length || 0) > 0;
+
+            if (!hayCronograma) {
+                // Un reporte libre no tiene cronograma ni notas: lo suyo son las
+                // fotos. Se abre donde sí hay algo que ver y que editar.
+                const hayFotos = (logsData || []).some(log => (
+                    Array.isArray(log.photos) &&
+                    log.photos.length > 0 &&
+                    !log.isDiaryEntry &&
+                    log.task_id !== 'diary'
+                ));
+                setActiveTab(hayFotos ? 'fotografico' : 'bitacora');
             }
 
         } catch (error) {
@@ -524,21 +541,44 @@ const BitacoraPage = () => {
 
     // Renderizar contenido del cronograma
     const renderCronograma = () => {
-        if (!schedule) {
+        // Ojo: una fila vacía de project_schedules también es truthy. Con
+        // `if (!schedule)` a secas se colaba hasta el fondo y terminaba en un
+        // "No se encontraron fases" sin un solo botón: el usuario se quedaba
+        // mirando una pantalla muerta. Se mira el contenido real.
+        const cronograma = schedule?.tasks || schedule;
+        const hayCronograma = Boolean(schedule) && (
+            (cronograma?.phases?.length || 0) > 0 ||
+            (cronograma?.tasks?.length || 0) > 0
+        );
+
+        if (!hayCronograma) {
             return (
-                <div className="bg-white p-12 rounded-2xl shadow-sm text-center">
+                <div className="bg-white p-6 sm:p-12 rounded-2xl shadow-sm text-center">
                     <Calendar size={48} className="mx-auto text-slate-300 mb-4" />
                     <h3 className="text-lg font-bold text-slate-700">No hay cronograma activo</h3>
-                    <p className="text-slate-500 mb-6">Este proyecto no tiene un cronograma de obra generado.</p>
-                    <div className="flex justify-center gap-4">
+                    <p className="text-slate-500 mb-6">
+                        Este proyecto no tiene cronograma. Si lo abriste solo para entregar
+                        evidencia fotográfica, no te hace falta: las fotos están en la
+                        pestaña Fotos.
+                    </p>
+                    <div className="flex flex-col sm:flex-row justify-center gap-3">
+                        <button
+                            onClick={() => setActiveTab('fotografico')}
+                            className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-indigo-700 transition min-h-[44px] touch-manipulation"
+                        >
+                            Ir a las fotos
+                        </button>
                         <button
                             onClick={() => setActiveTab('bitacora')}
-                            className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition"
+                            className="bg-white border-2 border-slate-200 text-slate-700 px-6 py-2.5 rounded-lg font-bold hover:bg-slate-50 transition min-h-[44px] touch-manipulation"
                         >
-                            Ir a Notas de Bitácora
+                            Notas de bitácora
                         </button>
-                        <button onClick={() => navigate(`/editor/${id}`)} className="text-indigo-600 font-bold hover:underline px-6 py-2">
-                            Generar Cronograma en Editor
+                        <button
+                            onClick={() => navigate(`/editor/${id}`)}
+                            className="text-indigo-600 font-bold hover:underline px-6 py-2.5 min-h-[44px] touch-manipulation"
+                        >
+                            Generar cronograma
                         </button>
                     </div>
                 </div>

@@ -95,7 +95,7 @@ const App = () => {
                                                 {/* Bitacora Route */}
                                                 <Route path="/project/:id/bitacora" element={
                                                     <ProtectedRoute requireAuth={true}>
-                                                        <Layout title="Bitácora de Obra"><BitacoraPage /></Layout>
+                                                        <Layout title="Bitácora de Obra" bare><BitacoraPage /></Layout>
                                                     </ProtectedRoute>
                                                 } />
 

@@ -327,6 +327,16 @@ export class ProjectPersistenceService {
     static async syncSchedule(projectId, scheduleData) {
         if (!projectId || !scheduleData) return;
 
+        // `normalizeScheduleData` nunca devuelve null: cuando el proyecto no
+        // tiene cronograma entrega uno vacío, que es igual de truthy. Por eso
+        // hasta un reporte fotográfico libre acababa creando su fila en
+        // project_schedules, y la Bitácora la leía como "sí hay cronograma":
+        // abría esa pestaña en un callejón sin salida, sin nada que editar.
+        // Una fila existente sí se actualiza, para poder vaciar un cronograma.
+        const tieneContenido =
+            (scheduleData.phases?.length || 0) > 0 ||
+            (scheduleData.tasks?.length || 0) > 0;
+
         try {
             // Verificar si existe cronograma
             const { data: existing } = await supabase
@@ -344,7 +354,7 @@ export class ProjectPersistenceService {
                         updated_at: new Date().toISOString()
                     })
                     .eq('id', existing.id);
-            } else {
+            } else if (tieneContenido) {
                 // Crear nuevo
                 await supabase
                     .from('project_schedules')
