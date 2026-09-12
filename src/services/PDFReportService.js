@@ -104,7 +104,10 @@ export class PDFReportService {
             dpi = 150,
             coverTolerance = 1.3, // hasta 30% de diferencia de proporción se recorta
             maxSidePx = 2200,
-            background = '#ffffff'
+            background = '#ffffff',
+            zoom = null,          // encuadre manual: 1 = foto entera, más = acercar
+            offsetX = 0,          // -1..1, fracción de lo que sobresale del recuadro
+            offsetY = 0
         } = options;
         const keepTransparency = background === 'transparent';
 
@@ -120,20 +123,31 @@ export class PDFReportService {
             const boxAspect = boxWidthMm / boxHeightMm;
             const srcAspect = srcW / srcH;
 
-            // Qué tan lejos está la foto de la proporción del recuadro
+            // Qué tan lejos está la foto de la proporción del recuadro. Resulta
+            // ser también el zoom exacto al que la foto deja de tener franjas.
             const aspectMismatch = Math.max(srcAspect / boxAspect, boxAspect / srcAspect);
-            const mode = fit === 'auto'
-                ? (aspectMismatch <= coverTolerance ? 'cover' : 'contain')
-                : fit;
+            const coverZoom = aspectMismatch;
+
+            // Todo se expresa como un zoom sobre "la foto completa": 1 la deja
+            // entera con franjas y coverZoom la hace llenar el recuadro
+            // recortando. Un encuadre manual es un zoom cualquiera entre medias
+            // (o más allá) con un desplazamiento, así que los tres casos salen
+            // del mismo dibujo en vez de tener dos ramas distintas.
+            const zoomPedido = Number(zoom);
+            const effectiveZoom = Number.isFinite(zoomPedido) && zoomPedido > 0
+                ? Math.min(Math.max(zoomPedido, 1), 6)
+                : (fit === 'cover'
+                    ? coverZoom
+                    : fit === 'contain'
+                        ? 1
+                        : (aspectMismatch <= coverTolerance ? coverZoom : 1));
 
             // Tamaño del recuadro en píxeles a la resolución de impresión
             let targetW = Math.round((boxWidthMm / 25.4) * dpi);
             let targetH = Math.round((boxHeightMm / 25.4) * dpi);
 
             // Nunca ampliar una foto chica: se reduce el lienzo para conservar nitidez
-            const neededScale = mode === 'cover'
-                ? Math.max(targetW / srcW, targetH / srcH)
-                : Math.min(targetW / srcW, targetH / srcH);
+            const neededScale = Math.min(targetW / srcW, targetH / srcH) * effectiveZoom;
             let canvasScale = neededScale > 1 ? 1 / neededScale : 1;
 
             // Tope de memoria para fotos enormes
@@ -157,23 +171,18 @@ export class PDFReportService {
             ctx.imageSmoothingEnabled = true;
             ctx.imageSmoothingQuality = 'high';
 
-            if (mode === 'cover') {
-                // Llenar el recuadro recortando el sobrante por los lados
-                const scale = Math.max(targetW / srcW, targetH / srcH);
-                const cropW = targetW / scale;
-                const cropH = targetH / scale;
-                ctx.drawImage(
-                    img,
-                    (srcW - cropW) / 2, (srcH - cropH) / 2, cropW, cropH,
-                    0, 0, targetW, targetH
-                );
-            } else {
-                // Mostrar la foto completa, centrada, sin recortar nada
-                const scale = Math.min(targetW / srcW, targetH / srcH);
-                const drawW = srcW * scale;
-                const drawH = srcH * scale;
-                ctx.drawImage(img, (targetW - drawW) / 2, (targetH - drawH) / 2, drawW, drawH);
-            }
+            // La escala de "foto completa" multiplicada por el zoom, y el
+            // desplazamiento como fracción de lo que sobresale del recuadro:
+            // con zoom 1 no sobresale nada y queda centrada, pase lo que pase.
+            const scale = Math.min(targetW / srcW, targetH / srcH) * effectiveZoom;
+            const drawW = srcW * scale;
+            const drawH = srcH * scale;
+            const maxDX = Math.max(0, (drawW - targetW) / 2);
+            const maxDY = Math.max(0, (drawH - targetH) / 2);
+            const enRango = (valor) => Math.min(Math.max(Number(valor) || 0, -1), 1);
+            const dx = (targetW - drawW) / 2 + enRango(offsetX) * maxDX;
+            const dy = (targetH - drawH) / 2 + enRango(offsetY) * maxDY;
+            ctx.drawImage(img, dx, dy, drawW, drawH);
 
             return keepTransparency
                 ? { data: canvas.toDataURL('image/png'), format: 'PNG' }
@@ -206,12 +215,13 @@ export class PDFReportService {
         for (const [conceptName, conceptLogs] of Object.entries(logsByConcept)) {
             for (const log of conceptLogs) {
                 if (!log.photos || log.photos.length === 0) continue;
-                const { photoCaptions: savedCaptions } = this.parsePhotoReportContent(log.content || '');
+                const { photoCaptions: savedCaptions, photoLayouts } = this.parsePhotoReportContent(log.content || '');
                 const photos = log.photos || [];
                 for (let i = 0; i < photos.length; i++) {
                     allPhotos.push({
                         url: photos[i],
                         caption: (savedCaptions[i] || '').trim(),
+                        layout: photoLayouts[i] || null,
                         concept: conceptName
                     });
                 }
@@ -498,8 +508,13 @@ export class PDFReportService {
                     throw new Error('No se pudo obtener datos de la imagen');
                 }
 
-                // Ajuste automático: la foto llena el recuadro sin deformarse
-                const fitted = await this.fitImageToBox(imgData, photoWidth, photoHeight, { fit: photoFit });
+                // El encuadre de la foto manda sobre el ajuste general del reporte
+                const fitted = await this.fitImageToBox(imgData, photoWidth, photoHeight, {
+                    fit: photo.layout?.fit || photoFit,
+                    zoom: photo.layout?.zoom ?? null,
+                    offsetX: photo.layout?.offsetX ?? 0,
+                    offsetY: photo.layout?.offsetY ?? 0
+                });
                 doc.addImage(fitted.data, fitted.format, xPos, currentYPos, photoWidth, photoHeight);
 
                 // Borde alrededor de la imagen (más visible como en el ejemplo)
@@ -680,18 +695,31 @@ export class PDFReportService {
      * @returns {{ cleanContent: string, photoCaptions: string[] }}
      */
     static parsePhotoReportContent(content) {
-        if (!content) return { cleanContent: '', photoCaptions: [] };
-        const match = content.match(/<!--PHOTO_CAPTIONS:(.*?)-->$/s);
-        let photoCaptions = [];
-        let cleanContent = content;
-        if (match) {
+        if (!content) return { cleanContent: '', photoCaptions: [], photoLayouts: [] };
+
+        const leerBloque = (texto, etiqueta) => {
+            const match = texto.match(new RegExp('<!--' + etiqueta + ':(.*?)-->$', 's'));
+            if (!match) return { valores: [], resto: texto };
+            let valores = [];
             try {
-                photoCaptions = JSON.parse(match[1].trim());
-                if (!Array.isArray(photoCaptions)) photoCaptions = [];
+                valores = JSON.parse(match[1].trim());
+                if (!Array.isArray(valores)) valores = [];
             } catch (_) {}
-            cleanContent = content.replace(/\n?\s*<!--PHOTO_CAPTIONS:.*?-->$/s, '').trim();
-        }
-        return { cleanContent, photoCaptions };
+            const resto = texto.replace(new RegExp('\\n?\\s*<!--' + etiqueta + ':.*?-->$', 's'), '').trim();
+            return { valores, resto };
+        };
+
+        // Se leen de fuera hacia dentro. Las descripciones siguen siendo el
+        // último bloque para no romper los reportes guardados antes de que
+        // existiera el encuadre por foto.
+        const descripciones = leerBloque(content, 'PHOTO_CAPTIONS');
+        const encuadres = leerBloque(descripciones.resto, 'PHOTO_LAYOUT');
+
+        return {
+            cleanContent: encuadres.resto,
+            photoCaptions: descripciones.valores,
+            photoLayouts: encuadres.valores
+        };
     }
 
     static async generateBitacoraReport(projectInfo, logs, reportDate, options = {}) {

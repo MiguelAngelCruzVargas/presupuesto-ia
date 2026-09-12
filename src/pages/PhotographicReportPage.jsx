@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Camera, Save, Plus, Trash2, Check, Upload, X, Image as ImageIcon, Images, LayoutGrid, Eye, FileText, ExternalLink, Loader2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical } from 'lucide-react';
+import { ArrowLeft, Camera, Save, Plus, Trash2, Check, Upload, X, Image as ImageIcon, Images, LayoutGrid, Eye, FileText, ExternalLink, Loader2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical, Crop, RotateCcw } from 'lucide-react';
 import {
     DndContext,
     closestCenter,
@@ -30,8 +30,19 @@ import { SIGNATURE_SCHEMES, buildSignatureData, getSignatureScheme } from '../co
 // Texto que se guarda en el log: descripción del bloque + descripciones por foto
 const buildLogContent = (entry, conceptName) => {
     const baseContent = entry.description || `Reporte fotográfico: ${conceptName}`;
-    const photoCaptions = (entry.photos || []).map(photo => photo.caption || '');
-    return baseContent + '\n\n<!--PHOTO_CAPTIONS:' + JSON.stringify(photoCaptions) + '-->';
+    const photos = entry.photos || [];
+    const photoCaptions = photos.map(photo => photo.caption || '');
+    const photoLayouts = photos.map(photo => ({
+        fit: photo.fit || 'auto',
+        zoom: Number.isFinite(Number(photo.zoom)) && Number(photo.zoom) > 0 ? Number(photo.zoom) : null,
+        offsetX: Number(photo.offsetX) || 0,
+        offsetY: Number(photo.offsetY) || 0
+    }));
+    // Las descripciones van las últimas: así los reportes guardados antes de
+    // que existiera el encuadre se siguen leyendo igual.
+    return baseContent
+        + '\n\n<!--PHOTO_LAYOUT:' + JSON.stringify(photoLayouts) + '-->'
+        + '\n<!--PHOTO_CAPTIONS:' + JSON.stringify(photoCaptions) + '-->';
 };
 
 // Cada foto es un objeto con identidad propia. Antes el bloque guardaba tres
@@ -44,8 +55,46 @@ const makePhoto = (props = {}) => ({
     file: null,       // File pendiente de subir
     uploaded: false,  // true cuando `url` ya vive en el servidor
     caption: '',
+    // Encuadre de esta foto en su recuadro del PDF. `zoom` manda sobre `fit`
+    // cuando el usuario lo ha tocado a mano; 1 es la foto entera.
+    fit: 'auto',      // 'auto' | 'contain' (completa) | 'cover' (llenar)
+    zoom: null,
+    offsetX: 0,       // -1..1, fracción de lo que sobresale del recuadro
+    offsetY: 0,
     ...props
 });
+
+// Mismo criterio que el PDF, para que la miniatura y la hoja coincidan.
+const COVER_TOLERANCE = 1.3;
+
+const getCoverZoom = (photoAspect, cellAspect) => (
+    (photoAspect > 0 && cellAspect > 0)
+        ? Math.max(photoAspect / cellAspect, cellAspect / photoAspect)
+        : 1
+);
+
+const resolveZoom = (photo, photoAspect, cellAspect) => {
+    const coverZoom = getCoverZoom(photoAspect, cellAspect);
+    const manual = Number(photo?.zoom);
+    if (Number.isFinite(manual) && manual > 0) return Math.min(Math.max(manual, 1), 6);
+    if (photo?.fit === 'cover') return coverZoom;
+    if (photo?.fit === 'contain') return 1;
+    return coverZoom <= COVER_TOLERANCE ? coverZoom : 1;
+};
+
+// Traduce el encuadre a una transformación CSS equivalente a la que hace el
+// canvas del PDF: escalar la "foto completa" y desplazarla dentro del recuadro.
+const getPhotoTransform = (photo, photoAspect, cellAspect) => {
+    if (!photoAspect || !cellAspect) return undefined;
+    const zoom = resolveZoom(photo, photoAspect, cellAspect);
+    const anchoRelativo = Math.min(1, photoAspect / cellAspect);
+    const altoRelativo = Math.min(1, cellAspect / photoAspect);
+    const maxTx = Math.max(0, (anchoRelativo * zoom - 1) / 2) * 100;
+    const maxTy = Math.max(0, (altoRelativo * zoom - 1) / 2) * 100;
+    const x = Math.min(Math.max(Number(photo?.offsetX) || 0, -1), 1) * maxTx;
+    const y = Math.min(Math.max(Number(photo?.offsetY) || 0, -1), 1) * maxTy;
+    return `translate(${x}%, ${y}%) scale(${zoom})`;
+};
 
 let blockSeq = 0;
 const makeBlock = (props = {}) => {
@@ -93,7 +142,7 @@ const revokeIfBlob = (url) => {
  * visibles: antes el botón de borrar aparecía solo con `hover`, así que en
  * celular era imposible quitar una foto.
  */
-const SortablePhoto = ({ photo, index, total, cellAspect, onMove, onRemove, onCaptionChange, onMeasure }) => {
+const SortablePhoto = ({ photo, index, total, cellAspect, photoAspect, onMove, onRemove, onCaptionChange, onMeasure, onFit, onCrop }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: photo.id });
 
     const style = {
@@ -103,6 +152,7 @@ const SortablePhoto = ({ photo, index, total, cellAspect, onMove, onRemove, onCa
     };
 
     const arrowClass = 'flex items-center justify-center w-8 h-8 rounded-lg border border-slate-300 text-slate-600 transition touch-manipulation disabled:opacity-30 disabled:cursor-not-allowed enabled:hover:bg-indigo-50 enabled:hover:text-indigo-600 enabled:hover:border-indigo-400';
+    const esManual = Number.isFinite(Number(photo.zoom)) && Number(photo.zoom) > 0;
 
     return (
         <div
@@ -121,6 +171,7 @@ const SortablePhoto = ({ photo, index, total, cellAspect, onMove, onRemove, onCa
                 <img
                     src={resolvePhotoSrc(photo.url)}
                     className="w-full h-full object-contain"
+                    style={{ transform: getPhotoTransform(photo, photoAspect, cellAspect) }}
                     alt={`Foto ${index + 1}`}
                     draggable={false}
                     onLoad={(e) => {
@@ -182,6 +233,41 @@ const SortablePhoto = ({ photo, index, total, cellAspect, onMove, onRemove, onCa
                 </button>
             </div>
 
+            {/* Encuadre: lo rápido aquí, lo fino en el recortador */}
+            <div className="mt-1 flex items-center gap-1">
+                <button
+                    type="button"
+                    onClick={() => onFit(photo.id, 'contain')}
+                    className={`flex-1 h-8 px-1 text-[10px] font-bold rounded-lg border transition touch-manipulation ${!esManual && photo.fit === 'contain'
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+                    title="Se ve la foto entera, con marco"
+                >
+                    Completa
+                </button>
+                <button
+                    type="button"
+                    onClick={() => onFit(photo.id, 'cover')}
+                    className={`flex-1 h-8 px-1 text-[10px] font-bold rounded-lg border transition touch-manipulation ${!esManual && photo.fit === 'cover'
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+                    title="Llena el recuadro recortando los bordes"
+                >
+                    Llenar
+                </button>
+                <button
+                    type="button"
+                    onClick={() => onCrop(photo.id)}
+                    className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-lg border transition touch-manipulation ${esManual
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-300 text-slate-500 hover:bg-slate-50'}`}
+                    title="Recortar: acercar y mover la foto"
+                    aria-label={`Recortar la foto ${index + 1}`}
+                >
+                    <Crop size={14} />
+                </button>
+            </div>
+
             <input
                 type="text"
                 value={photo.caption || ''}
@@ -189,6 +275,162 @@ const SortablePhoto = ({ photo, index, total, cellAspect, onMove, onRemove, onCa
                 placeholder={`Descripción foto ${index + 1}`}
                 className="w-full mt-1.5 text-xs font-medium text-slate-700 border-b border-slate-300 pb-1 focus:outline-none focus:border-indigo-500 bg-transparent"
             />
+        </div>
+    );
+};
+
+
+/**
+ * Recortador de una foto.
+ *
+ * El recuadro tiene la forma exacta que tendrá en la hoja, así que lo que se
+ * ve aquí es lo que se imprime. Se mueve arrastrando (dedo o ratón) y se
+ * acerca con la barra: un pellizco de dos dedos sería más natural pero la
+ * barra no falla nunca, que es lo que importa en obra.
+ */
+const PhotoCropModal = ({ photo, photoAspect, cellAspect, onApply, onClose }) => {
+    const coverZoom = getCoverZoom(photoAspect, cellAspect);
+    const [zoom, setZoom] = useState(() => resolveZoom(photo, photoAspect, cellAspect));
+    const [offset, setOffset] = useState(() => ({
+        x: Number(photo.offsetX) || 0,
+        y: Number(photo.offsetY) || 0
+    }));
+
+    const marcoRef = useRef(null);
+    const arrastreRef = useRef(null);
+
+    const anchoRelativo = Math.min(1, photoAspect / cellAspect);
+    const altoRelativo = Math.min(1, cellAspect / photoAspect);
+    const sobraX = Math.max(0, (anchoRelativo * zoom - 1) / 2);
+    const sobraY = Math.max(0, (altoRelativo * zoom - 1) / 2);
+    const zoomMaximo = Math.max(3, Math.ceil(coverZoom * 10) / 10 + 1);
+
+    const enRango = (valor) => Math.min(Math.max(valor, -1), 1);
+
+    const alBajar = (e) => {
+        const marco = marcoRef.current;
+        if (!marco) return;
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        arrastreRef.current = {
+            x: e.clientX,
+            y: e.clientY,
+            offsetX: offset.x,
+            offsetY: offset.y,
+            ancho: marco.clientWidth,
+            alto: marco.clientHeight
+        };
+    };
+
+    const alMover = (e) => {
+        const inicio = arrastreRef.current;
+        if (!inicio) return;
+        // El desplazamiento se guarda como fracción de lo que sobresale, no en
+        // píxeles: así vale igual en el móvil, en el escritorio y en la hoja.
+        const margenX = sobraX * inicio.ancho;
+        const margenY = sobraY * inicio.alto;
+        setOffset({
+            x: margenX > 0 ? enRango(inicio.offsetX + (e.clientX - inicio.x) / margenX) : 0,
+            y: margenY > 0 ? enRango(inicio.offsetY + (e.clientY - inicio.y) / margenY) : 0
+        });
+    };
+
+    const alSoltar = () => { arrastreRef.current = null; };
+
+    const transformacion = `translate(${enRango(offset.x) * sobraX * 100}%, ${enRango(offset.y) * sobraY * 100}%) scale(${zoom})`;
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-3">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+                    <h3 className="font-bold text-slate-900 text-sm">Encuadre de la foto</h3>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition touch-manipulation"
+                        aria-label="Cerrar"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="p-4">
+                    <div
+                        ref={marcoRef}
+                        onPointerDown={alBajar}
+                        onPointerMove={alMover}
+                        onPointerUp={alSoltar}
+                        onPointerCancel={alSoltar}
+                        className="relative mx-auto w-full max-w-sm overflow-hidden rounded-lg border-2 border-slate-300 bg-slate-200 touch-none cursor-grab active:cursor-grabbing select-none"
+                        style={{ aspectRatio: String(cellAspect) }}
+                    >
+                        <img
+                            src={resolvePhotoSrc(photo.url)}
+                            className="w-full h-full object-contain pointer-events-none"
+                            style={{ transform: transformacion }}
+                            alt="Foto a recortar"
+                            draggable={false}
+                        />
+                    </div>
+
+                    <p className="mt-2 text-center text-[11px] text-slate-500">
+                        Arrastra la foto para moverla dentro del recuadro.
+                    </p>
+
+                    <label className="block mt-4 text-[10px] font-bold text-slate-700 uppercase mb-1">
+                        Acercar
+                    </label>
+                    <input
+                        type="range"
+                        min={1}
+                        max={zoomMaximo}
+                        step={0.01}
+                        value={zoom}
+                        onChange={(e) => setZoom(Number(e.target.value))}
+                        className="w-full accent-indigo-600 h-8 touch-manipulation"
+                    />
+
+                    <div className="flex flex-wrap gap-2 mt-3">
+                        <button
+                            type="button"
+                            onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}
+                            className="flex-1 min-w-[96px] h-10 text-xs font-bold rounded-xl border-2 border-slate-300 text-slate-600 hover:bg-slate-50 transition touch-manipulation"
+                        >
+                            Completa
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setZoom(coverZoom); setOffset({ x: 0, y: 0 }); }}
+                            className="flex-1 min-w-[96px] h-10 text-xs font-bold rounded-xl border-2 border-slate-300 text-slate-600 hover:bg-slate-50 transition touch-manipulation"
+                        >
+                            Llenar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onApply({ fit: 'auto', zoom: null, offsetX: 0, offsetY: 0 })}
+                            className="flex-1 min-w-[96px] h-10 text-xs font-bold rounded-xl border-2 border-slate-300 text-slate-600 hover:bg-slate-50 transition flex items-center justify-center gap-1.5 touch-manipulation"
+                        >
+                            <RotateCcw size={14} /> Automático
+                        </button>
+                    </div>
+                </div>
+
+                <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end px-4 py-3 border-t border-slate-200">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="px-4 py-2.5 rounded-xl font-bold text-slate-700 border-2 border-slate-200 hover:bg-slate-50 transition min-h-[44px] touch-manipulation"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onApply({ zoom, offsetX: offset.x, offsetY: offset.y })}
+                        className="px-5 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200/50 transition min-h-[44px] touch-manipulation"
+                    >
+                        Aplicar
+                    </button>
+                </div>
+            </div>
         </div>
     );
 };
@@ -248,6 +490,9 @@ const PhotographicReportPage = () => {
     const [showHeaderData, setShowHeaderData] = useState(
         () => typeof window === 'undefined' || window.innerWidth >= 768
     );
+
+    // Foto abierta en el recortador: { entryId, photoId }
+    const [cropTarget, setCropTarget] = useState(null);
 
     // Proporción real de cada foto, medida al pintarla. Vive aparte de
     // `entries` para que medir una no vuelva a dibujar todos los bloques.
@@ -369,7 +614,7 @@ const PhotographicReportPage = () => {
                         );
 
                         // Concepto general y descripciones opcionales por foto (no se repite el concepto bajo cada foto en PDF)
-                        const { cleanContent, photoCaptions: savedCaptions } = PDFReportService.parsePhotoReportContent(log.content || '');
+                        const { cleanContent, photoCaptions: savedCaptions, photoLayouts } = PDFReportService.parsePhotoReportContent(log.content || '');
                         const entry = makeBlock({
                             logId: log.id,
                             itemId: item?.id || log.task_id,
@@ -378,7 +623,8 @@ const PhotographicReportPage = () => {
                             photos: (log.photos || []).map((url, i) => makePhoto({
                                 url,
                                 uploaded: true,
-                                caption: savedCaptions[i] ?? ''
+                                caption: savedCaptions[i] ?? '',
+                                ...(photoLayouts[i] || {})
                             })),
                             description: cleanContent || log.content || '',
                             progress: log.progress_percentage || 100,
@@ -457,6 +703,18 @@ const PhotographicReportPage = () => {
         updatePhotos(entryId, photos => photos.map(item => (
             item.id === photoId ? { ...item, caption } : item
         )));
+    };
+
+    const setPhotoLayout = (entryId, photoId, cambios) => {
+        updatePhotos(entryId, photos => photos.map(item => (
+            item.id === photoId ? { ...item, ...cambios } : item
+        )));
+    };
+
+    // Los botones rápidos limpian el zoom manual: si no, tocarlos no cambiaba
+    // nada en pantalla porque el zuom a mano manda sobre el ajuste.
+    const setPhotoFit = (entryId, photoId, fit) => {
+        setPhotoLayout(entryId, photoId, { fit, zoom: null, offsetX: 0, offsetY: 0 });
     };
 
     const handlePhotoDragEnd = (entryId, event) => {
@@ -653,6 +911,12 @@ const PhotographicReportPage = () => {
         () => PDFReportService.estimatePhotoCellAspect(medianPhotoAspect, pdfLayout.gridCols, pdfOrientation),
         [medianPhotoAspect, pdfLayout.gridCols, pdfOrientation]
     );
+
+    const cropPhoto = useMemo(() => {
+        if (!cropTarget) return null;
+        const entry = entries.find(item => item.id === cropTarget.entryId);
+        return (entry?.photos || []).find(item => item.id === cropTarget.photoId) || null;
+    }, [cropTarget, entries]);
 
     // Datos del membrete/diseño que consume el PDF, tomados de lo que hay en pantalla
     const buildProjectInfoForPdf = () => {
@@ -1375,10 +1639,13 @@ const PhotographicReportPage = () => {
                                                                     index={idx}
                                                                     total={entry.photos.length}
                                                                     cellAspect={photoCellAspect}
+                                                                    photoAspect={photoAspects[photo.id]}
                                                                     onMove={(from, to) => movePhoto(entry.id, from, to)}
                                                                     onRemove={(photoId) => removePhoto(entry.id, photoId)}
                                                                     onCaptionChange={(photoId, caption) => setPhotoCaption(entry.id, photoId, caption)}
                                                                     onMeasure={registerPhotoAspect}
+                                                                    onFit={(photoId, fit) => setPhotoFit(entry.id, photoId, fit)}
+                                                                    onCrop={(photoId) => setCropTarget({ entryId: entry.id, photoId })}
                                                                 />
                                                             ))}
                                                             {/* Cámara: en celular abre la cámara directo; en escritorio no se muestra */}
@@ -1547,6 +1814,20 @@ const PhotographicReportPage = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Recortador de una foto */}
+            {cropPhoto && (
+                <PhotoCropModal
+                    photo={cropPhoto}
+                    photoAspect={photoAspects[cropPhoto.id] || medianPhotoAspect}
+                    cellAspect={photoCellAspect}
+                    onClose={() => setCropTarget(null)}
+                    onApply={(cambios) => {
+                        setPhotoLayout(cropTarget.entryId, cropTarget.photoId, cambios);
+                        setCropTarget(null);
+                    }}
+                />
+            )}
 
             {/* Modal de Alerta */}
             <AlertModal
